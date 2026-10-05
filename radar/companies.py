@@ -189,7 +189,7 @@ def main(argv=None):
     # Everything else new is counted, not listed (the opportunity search still covers their boards).
     in_region_new = sorted(
         [c for c in companies if c["key"] in new_keys and "wishlist" not in c["sources"]
-         and c.get("matching_roles_in_region", 0) > 0],
+         and c.get("matching_roles_in_region", 0) > 0 and (c.get("stage") or "") not in ("ipo", "acquisition")],
         key=lambda c: -c.get("matching_roles_in_region", 0))
 
     # ---- write

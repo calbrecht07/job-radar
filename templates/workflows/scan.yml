@@ -31,7 +31,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -q -r .engine/requirements.txt
+      - run: pip install -q -r .engine/requirements.txt && mkdir -p scan state report
       - name: Scan every company and build the report
         run: |
           AUDIT=""

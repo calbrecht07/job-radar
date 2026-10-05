@@ -32,7 +32,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -q -r .engine/requirements.txt
+      - run: pip install -q -r .engine/requirements.txt && mkdir -p pool state
       - name: Find hidden job boards for wishlist companies
         run: PYTHONPATH=.engine python -m radar.discover --data . --fill-wishlist 2>&1 | tee -a pool/companies.log
       - name: Boards added by hand (inbox/add.csv)

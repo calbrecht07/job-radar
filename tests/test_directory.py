@@ -158,13 +158,20 @@ def test_priority_order():
 
 
 def test_list_page_directory():
-    page = """<a href="https://member-one.com">Member One</a><a href="https://linkedin.com/x">LinkedIn</a>
+    members = "".join(f'<li><a href="https://member-{i}.com">Member {i}</a></li>' for i in range(3, 10))
+    page = f"""<nav><a href="https://sister-site.com">Our sister site</a></nav>
+    <a href="https://member-one.com">Member One</a><a href="https://linkedin.com/x">LinkedIn</a>
     <a href="/about">About</a><a href="https://www.member-two.co.uk/en"><img alt="Member Two Ltd" src="l.png"></a>
-    <a href="https://member-one.com/careers">Member One careers</a>"""
+    <a href="https://member-one.com/careers">Member One careers</a>{members}
+    <footer><a href="https://sponsor.com">Sponsor</a></footer>"""
     with mock.patch.object(directories.requests, "get", lambda *a, **k: R(text=page, url="https://assoc.org/members")):
         out = directories.from_list_page("https://assoc.org/members")
-    assert out == [{"name": "Member One", "website": "https://member-one.com"},
-                   {"name": "Member Two Ltd", "website": "https://member-two.co.uk"}]
+    assert out[:2] == [{"name": "Member One", "website": "https://member-one.com"},
+                       {"name": "Member Two Ltd", "website": "https://member-two.co.uk"}]
+    assert len(out) == 9 and not any("sister" in c["website"] or "sponsor" in c["website"] for c in out)
+    few = '<a href="https://a-co.com">A</a><a href="https://b-co.com">B</a>'   # profile-link directories: nothing
+    with mock.patch.object(directories.requests, "get", lambda *a, **k: R(text=few, url="https://assoc.org/members")):
+        assert directories.from_list_page("https://assoc.org/members") == []
 
 
 def test_located_reads_job_page():

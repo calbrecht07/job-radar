@@ -18,6 +18,12 @@ asked to research, it writes the request to its log for the person instead.
 
 Skip recruiters, job aggregators, and listicles that won't be updated.
 
+**Check every directory before adding it**: `PYTHONPATH=<framework> python -m sources.directories <url>` prints what
+the pipeline would read. The best directories are VC and accelerator job boards on Getro or Consider (they give each
+company's website and location): look for "jobs" or "careers" boards of investors in the space. Most association and
+"top companies" pages link to their own profile pages, not to company websites; the reader returns nothing for
+them, so add their companies to `research.csv` instead.
+
 ## Where to write (data repo)
 
 `inbox/research.csv`, one company per row:

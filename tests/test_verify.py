@@ -25,3 +25,10 @@ def test_title_shown():
     assert _title_shown("Senior Founder's Associate", "<h1>Senior Founder's Associate</h1> at Kernel")
     assert not _title_shown("Senior Founder's Associate", "<div id=root></div>" + "lorem " * 200)
     assert _title_shown("", "anything")
+
+
+def test_gone_strong_anywhere():
+    from radar.verify import GONE_STRONG
+    page = "nav " * 2000 + "Kernel AI Senior Founder's Associate. Job no longer available. Salary £65-80k"
+    assert GONE_STRONG.search(page)
+    assert not GONE_STRONG.search("We are hiring a Senior Associate. Apply now. Page not found in footer links")

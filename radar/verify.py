@@ -25,6 +25,10 @@ GONE = re.compile(
     r"has (been )?(filled|closed|expired|removed)|is (closed|unavailable|not available)|not found|does ?n[o']t exist|"
     r"could ?n[o']t be found)|no longer (available|accepting applications)|this job is closed|applications (are )?closed|"
     r"position (has been )?filled|job not found|page not found|404", re.I)
+GONE_STRONG = re.compile(
+    r"(job|position|role|posting|opening|vacancy)[^.]{0,30}(no longer (available|accepting|open|active)|"
+    r"has (been )?(filled|closed|expired)|is (closed|unavailable))|no longer accepting applications|"
+    r"this job is closed|applications (are )?(now )?closed|position (has been )?filled", re.I)
 # a board's front page: host root, or host + one path segment (jobs.ashbyhq.com/acme, boards.greenhouse.io/acme),
 # optionally followed by /jobs or /careers
 BOARD_HOME = re.compile(r"^https?://[^/]+(/[\w.%-]+)?(/(jobs|careers))?/?$")
@@ -93,11 +97,14 @@ def check_url(url: str, title: str = "") -> tuple[bool, str]:
     head = re.sub(r"<script.*?</script>|<style.*?</style>", " ", r.text[:60000], flags=re.S | re.I)
     text = re.sub(r"<[^>]+>", " ", head)
     text = re.sub(r"\s+", " ", text)
-    m = GONE.search(text[:6000])          # the notice is near the top of the page
+    m = GONE.search(text[:6000])          # weak signals ("404", "page not found") only count near the top
     if m and "404" not in m.group(0):
         return False, f'page says "{m.group(0)[:60]}"'
     if m and len(text) < 1500:
         return False, "404 page"
+    m = GONE_STRONG.search(text)          # explicit closed-job notices count anywhere (WTTJ puts it mid-page)
+    if m:
+        return False, f'page says "{m.group(0)[:60]}"'
     if len(text) < 400:
         return True, "unverified: page needs JavaScript"
     if title and not _title_shown(title, r.text):

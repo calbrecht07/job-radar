@@ -107,7 +107,7 @@ def check_url(url: str, title: str = "") -> tuple[bool, str]:
         return False, f'page says "{m.group(0)[:60]}"'
     if len(text) < 400:
         return True, "unverified: page needs JavaScript"
-    if title and not _title_shown(title, r.text):
+    if title and not _title_shown(title, text):   # visible text only: meta tags do not count
         return True, "unverified: page doesn't show the role (needs JavaScript)"
     return True, "ok"
 

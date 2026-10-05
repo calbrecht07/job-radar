@@ -3,6 +3,8 @@
 Run standalone after reviewing:  python -m radar.report --data PATH
 Reviewer verdicts live in judged.json: {candidate_id: {"fit": "keep"|"stretch"|"cut", "note": "...", ...}}
 Roles judged "cut" are hidden from the report (counted at the bottom).
+Roles found outside the feeds go in extra_roles.json: [{id, company, kind, title, url, pool, locations,
+  fit, note, found, layer, closed}] (layer defaults to watchlist; set closed: true when the posting is gone).
 """
 from __future__ import annotations
 
@@ -53,7 +55,7 @@ def build(data: Path, cfg: dict | None = None) -> dict:
         return j.get("fit"), j.get("note", "")
 
     # ---- watchlist
-    wl_roles, quiet, pages_rows, hidden = [], [], [], 0
+    wl_roles, quiet, pages_rows, hidden, matches_extra = [], [], [], 0, []
     for name, s in sorted(wl.items(), key=lambda kv: (kv[1].get("kind") != "vc", kv[0].lower())):
         shown = []
         for r in s.get("roles", []):
@@ -69,6 +71,12 @@ def build(data: Path, cfg: dict | None = None) -> dict:
         elif not shown:
             quiet.append({"company": name, "error": s.get("error")})
 
+    # roles a reviewer found off-feed (careers pages, VC sites, web search): extra_roles.json
+    for e in _load(data / "extra_roles.json", []):
+        if e.get("closed") or e.get("fit") == "cut":
+            continue
+        row = {"pool": "local", "locations": [], "workplace": "", "flags": [], "first_seen": e.get("found", "")[:10], **e}
+        (wl_roles if e.get("layer", "watchlist") == "watchlist" else matches_extra).append(row)
     rank = {"keep": 0, "stretch": 1, None: 2}
     wl_roles.sort(key=lambda r: (r.get("kind") != "vc", rank.get(r.get("fit"), 3), r["company"].lower()))
 
@@ -82,6 +90,7 @@ def build(data: Path, cfg: dict | None = None) -> dict:
             hidden += 1
             continue
         mk.append({**m, "fit": fit, "note": note})
+    mk += [{**m, "found": m.get("found") or m.get("first_seen", "")} for m in matches_extra]
     mk.sort(key=lambda m: (m.get("kind") != "vc", rank.get(m.get("fit"), 3), m["company"].lower()))
 
     rep = {"updated": health.get("run_at"), "boards": health.get("boards"), "watchlist_size": len(wl),

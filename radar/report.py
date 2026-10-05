@@ -63,6 +63,8 @@ def build(data: Path, cfg: dict | None = None) -> dict:
                 continue
             shown.append({**r, "company": name, "kind": s.get("kind"), "fit": fit, "note": note})
         wl_roles += shown
+    rank = {"keep": 0, "stretch": 1, None: 2}
+    wl_roles.sort(key=lambda r: (r.get("kind") != "vc", rank.get(r.get("fit"), 3), r["company"].lower()))
         if s.get("board") == "" and s.get("page_status"):
             pages_rows.append({"company": name, "status": s["page_status"], "added": s.get("page_added") or [],
                                "error": s.get("page_error"), "url": s.get("careers_url")})
@@ -79,7 +81,7 @@ def build(data: Path, cfg: dict | None = None) -> dict:
             hidden += 1
             continue
         mk.append({**m, "fit": fit, "note": note})
-    mk.sort(key=lambda m: (m.get("kind") != "vc", m.get("fit") is None, m.get("fit") != "keep", m["company"].lower()))
+    mk.sort(key=lambda m: (m.get("kind") != "vc", rank.get(m.get("fit"), 3), m["company"].lower()))
 
     rep = {"updated": health.get("run_at"), "boards": health.get("boards"), "watchlist_size": len(wl),
            "watchlist_roles": wl_roles, "watchlist_quiet": quiet, "pages": pages_rows,

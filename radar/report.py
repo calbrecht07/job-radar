@@ -118,9 +118,10 @@ def render_md(rep: dict, local_label: str) -> str:
             L.append(f"- **[{_md(p['company'])}]({p['url']})**: page changed. New lines: {_md(added)[:300]}")
         groups = {}
         for p in other:
-            groups.setdefault(p["status"], []).append(f"[{_md(p['company'])}]({p['url']})")
+            groups.setdefault(p["status"], []).append(f"[{_md(p['company'])}]({p['url']})" if p.get("url") else _md(p["company"]))
         labels = {"unchanged": "Unchanged", "first_check": "First check (baseline saved)",
-                  "js_only": "Loads jobs with JavaScript: check in a browser", "error": "Couldn't load"}
+                  "js_only": "Loads jobs with JavaScript: check in a browser", "error": "Couldn't load",
+                  "not_checked": "No feed or careers page: check by web search"}
         for st, items in groups.items():
             L.append(f"- {labels.get(st, st)}: {', '.join(items)}")
         L.append("")

@@ -100,7 +100,7 @@ def build_targets(watch: list[dict], index: list[dict], pstate: dict) -> list[di
         if not (a and s):
             for b in (pstate.get(w["name"]) or {}).get("boards", []):
                 ba, bs = b.split(":", 1)
-                if ba in ats.ADAPTERS:
+                if ba in ats.ADAPTERS and ats.plausible(w["name"], bs, w.get("careers_url", "")):
                     a, s, w = ba, bs, {**w, "board_detected": True}
                     break
         if a and s and a in ats.ADAPTERS and (a, s.lower()) not in seen:
@@ -264,10 +264,15 @@ def main(argv=None):
             wl_status[w["name"]] = {"kind": w.get("kind") or "startup", "board": "", "careers_url": w["careers_url"],
                                     "page_status": res.get("status"), "page_added": res.get("added", []),
                                     "page_error": res.get("error"), "roles": []}
-        boards = res.get("boards") or []
+        boards = [b for b in res.get("boards") or [] if ats.plausible(w["name"], b.split(":", 1)[1], w["careers_url"])]
         if boards and configured not in boards:
             audit.append({"company": w["name"], "configured": configured or None, "found_on_page": boards,
                           "careers_url": w["careers_url"]})
+    for w in watch:
+        if w["name"] not in wl_status:
+            wl_status[w["name"]] = {"kind": w.get("kind") or "startup", "board": "", "careers_url": w.get("careers_url", ""),
+                                    "page_status": "not_checked" if not w.get("careers_url") else "skipped",
+                                    "note": w.get("note", ""), "roles": []}
     stats["pages_checked"] = len(checked)
     stats["pages_changed"] = sum(1 for _, r in checked if r.get("status") == "changed")
 

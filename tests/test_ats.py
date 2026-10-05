@@ -96,3 +96,18 @@ def test_smartrecruiters():
     with mock.patch.object(ats, "_get", fake_get({"smartrecruiters": data})):
         out = ats.fetch("smartrecruiters", "x")
     assert out[0]["url"] == "https://jobs.smartrecruiters.com/x/77" and out[0]["locations"] == ["London, gb"]
+
+
+def test_plausible():
+    assert ats.plausible("Cleo", "cleo-2")
+    assert ats.plausible("Frontline Ventures", "frontlinevc", "https://frontline.vc/careers/")
+    assert not ats.plausible("Molten Ventures", "iceye", "https://www.moltenventures.com/opportunities")
+    assert not ats.plausible("Octopus Ventures", "oneclick-ui")
+
+
+def test_bamboohr():
+    data = {"result": [{"id": 51, "jobOpeningName": "Investment Associate", "departmentLabel": "Investments",
+                        "location": {"city": "London", "state": None}, "isRemote": None}]}
+    with mock.patch.object(ats, "_get", fake_get({"bamboohr.com": data})):
+        out = ats.fetch("bamboohr", "illuminatefinancial")
+    assert out[0]["url"] == "https://illuminatefinancial.bamboohr.com/careers/51" and out[0]["locations"] == ["London"]

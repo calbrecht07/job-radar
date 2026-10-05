@@ -281,7 +281,34 @@ def smartrecruiters(slug: str) -> list[dict]:
     return out
 
 
+# ----------------------------------------------------------------- BambooHR
+def bamboohr(slug: str) -> list[dict]:
+    data = _get(f"https://{slug}.bamboohr.com/careers/list")
+    out = []
+    for j in data.get("result", []):
+        loc = j.get("location") or {}
+        place = ", ".join(x for x in [loc.get("city"), loc.get("state"), loc.get("country")] if x)
+        ats_loc = j.get("atsLocation") or {}
+        if not place:
+            place = ", ".join(x for x in [ats_loc.get("city"), ats_loc.get("state"), ats_loc.get("country")] if x)
+        remote = bool(j.get("isRemote")) or (j.get("locationType") == "1")
+        out.append({
+            "id": str(j.get("id")),
+            "title": j.get("jobOpeningName", ""),
+            "locations": [place] if place else [],
+            "remote": remote,
+            "workplace": "remote" if remote else "",
+            "url": f"https://{slug}.bamboohr.com/careers/{j.get('id')}",
+            "published": None,
+            "department": j.get("departmentLabel") or "",
+            "salary": "",
+            "description": "",
+        })
+    return out
+
+
 ADAPTERS = {
+    "bamboohr": bamboohr,
     "ashby": ashby,
     "greenhouse": greenhouse, "greenhouse-eu": greenhouse,
     "lever": lever, "lever-eu": lambda s: lever(s, eu_first=True),
@@ -313,9 +340,9 @@ BOARD_PATTERNS = [
     ("recruitee", r"([\w-]+)\.recruitee\.com"),
     ("personio", r"([\w-]+)\.jobs\.personio\.(?:de|com)"),
     ("smartrecruiters", r"(?:jobs|careers)\.smartrecruiters\.com/([\w-]+)"),
+    ("bamboohr", r"([\w-]+)\.bamboohr\.com/(?:careers|jobs)"),
     # recognised but not supported by a feed adapter (reported, checked by page)
     ("teamtailor", r"([\w-]+)\.teamtailor\.com"),
-    ("bamboohr", r"([\w-]+)\.bamboohr\.com"),
     ("pinpoint", r"([\w-]+)\.pinpointhq\.com"),
     ("workday", r"([\w-]+)\.wd\d+\.myworkdayjobs\.com"),
     ("hibob", r"([\w-]+)\.careers\.hibob\.com"),
@@ -323,7 +350,25 @@ BOARD_PATTERNS = [
     ("dover", r"app\.dover\.com/jobs/([\w-]+)"),
     ("trakstar", r"([\w-]+)\.hire\.trakstar\.com"),
 ]
-_IGNORE_SLUGS = {"www", "api", "app", "jobs", "careers", "embed", "j", "static", "assets", "cdn", "js"}
+_IGNORE_SLUGS = {"www", "api", "app", "jobs", "careers", "embed", "j", "static", "assets", "cdn", "js",
+                 "staticfe", "resources", "bhrpendo", "support", "help", "marketing"}
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+def plausible(company: str, slug: str, url: str = "") -> bool:
+    """Does a board slug plausibly belong to this company (and not e.g. a VC's portfolio company)?"""
+    sl = _norm(re.sub(r"[-_](careers?|jobs|hq|inc|ltd|\d+)$", "", slug, flags=re.I))
+    if len(sl) < 3:
+        return False
+    names = {_norm(company), _norm(re.sub(r"\(.*?\)", "", company))}
+    names |= {_norm(w) for w in re.findall(r"[A-Za-z0-9]+", company) if len(w) >= 4}
+    host = re.sub(r"^www\.", "", (re.findall(r"https?://([^/]+)", url) or [""])[0].lower())
+    if host:
+        names.add(_norm(host.split(".")[0]))
+    return any(n and (n.startswith(sl) or sl.startswith(n) or sl in n) for n in names if len(n) >= 3)
 
 
 def detect_boards(html_text: str) -> list[tuple[str, str]]:

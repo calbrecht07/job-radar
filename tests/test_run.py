@@ -30,7 +30,7 @@ def fake_fetch(a, s):
 
 
 PAGE1 = "<html><body>" + "".join(f"<p>Line {i}</p>" for i in range(30)) + \
-        '<a href="https://acme2.teamtailor.com/jobs">Jobs</a></body></html>'
+        '<a href="https://pageco.teamtailor.com/jobs">Jobs</a></body></html>'
 PAGE2 = PAGE1.replace("Line 3<", "Head of Partnerships<")
 
 
@@ -74,7 +74,7 @@ def test_two_runs(tmp_path):
         assert "Head of Partnerships" in wl["PageCo"]["page_added"]
         assert wl["Acme"]["roles"], "watchlist keeps showing current open roles"
         audit = json.loads((tmp_path / "output/board_audit.json").read_text())["mismatches"]
-        assert audit[0]["found_on_page"] == ["teamtailor:acme2"]
+        assert audit[0]["found_on_page"] == ["teamtailor:pageco"]
 
     # reviewer cuts the market role -> hidden from the report
     pend_id = [c["id"] for c in pend if c["layer"] == "market"][0]

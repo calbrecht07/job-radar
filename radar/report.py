@@ -37,7 +37,7 @@ def where(r: dict, local_label: str) -> str:
     return f"{local_label}{' · ' + wp if wp and wp != 'remote' else ''}" if local_label.lower() in locs.lower() else locs[:70]
 
 
-def build(data: Path, cfg: dict | None = None) -> dict:
+def build(data: Path, cfg: dict | None = None, skip_verify: bool = False) -> dict:
     cfg = cfg or yaml.safe_load((data / "settings.yaml").read_text()) or {}
     local_label = ((cfg.get("locations") or {}).get("local") or {}).get("label") or "Local"
     days = int((cfg.get("output") or {}).get("report_market_days", 7))
@@ -49,6 +49,8 @@ def build(data: Path, cfg: dict | None = None) -> dict:
     audit = _load(data / "scan/board_audit.json", {}).get("mismatches", [])
     matches = _load(data / "scan/matches.json", [])
     judged = _load(data / "judged.json", {})
+    from radar import verify
+    closed = verify.run(data).get("closed", {}) if not skip_verify else {}
 
     def verdict(rid):
         j = judged.get(rid) or {}
@@ -60,7 +62,7 @@ def build(data: Path, cfg: dict | None = None) -> dict:
         shown = []
         for r in s.get("roles", []):
             fit, note = verdict(r["id"])
-            if fit == "cut":
+            if fit == "cut" or r["id"] in closed:
                 hidden += 1
                 continue
             shown.append({**r, "company": name, "kind": s.get("kind"), "fit": fit, "note": note})
@@ -73,7 +75,7 @@ def build(data: Path, cfg: dict | None = None) -> dict:
 
     # roles a reviewer found off-feed (careers pages, VC sites, web search): extra_roles.json
     for e in _load(data / "extra_roles.json", []):
-        if e.get("closed") or e.get("fit") == "cut":
+        if e.get("closed") or e.get("fit") == "cut" or e.get("id") in closed:
             continue
         row = {"pool": "local", "locations": [], "workplace": "", "flags": [], "first_seen": e.get("found", "")[:10], **e}
         (wl_roles if e.get("layer", "watchlist") == "watchlist" else matches_extra).append(row)
@@ -86,7 +88,7 @@ def build(data: Path, cfg: dict | None = None) -> dict:
         if m.get("layer") != "market" or m.get("found", "") < since:
             continue
         fit, note = verdict(m["id"])
-        if fit == "cut":
+        if fit == "cut" or m["id"] in closed:
             hidden += 1
             continue
         mk.append({**m, "fit": fit, "note": note})
@@ -96,6 +98,7 @@ def build(data: Path, cfg: dict | None = None) -> dict:
     rep = {"updated": health.get("run_at"), "boards": health.get("boards"), "watchlist_size": len(wl),
            "watchlist_roles": wl_roles, "watchlist_quiet": quiet, "pages": pages_rows,
            "market_days": days, "market_roles": mk, "hidden_cut": hidden,
+           "closed_count": len(closed),
            "failing": (health.get("not_found") or []) + [f for f in health.get("failed") or [] if f.get("consecutive_fails", 0) >= 2],
            "audit": audit}
     out = data / "report"
@@ -164,7 +167,8 @@ def render_md(rep: dict, local_label: str) -> str:
     if not rep["failing"] and not rep["audit"]:
         L.append("- Nothing.")
     if rep["hidden_cut"]:
-        L += ["", f"_{rep['hidden_cut']} roles reviewed and cut are hidden._"]
+        L += ["", f"_{rep['hidden_cut']} roles are hidden: reviewed and cut, or the posting has closed "
+                  f"({rep.get('closed_count', 0)} closed postings detected)._"]
     return "\n".join(L) + "\n"
 
 

@@ -402,6 +402,7 @@ def main(argv=None):
         return 0
 
     save_json(data / "state/seen.json", seen, indent=0)
+    save_json(data / "state/live.json", sorted(current_keys), indent=0)
     save_json(data / "state/companies.json", cstate)
     save_json(data / "state/pages.json", pstate)
     save_json(data / "scan/pending.json", pending)
@@ -433,7 +434,7 @@ def main(argv=None):
                  f"new={stats['new_postings']} cand_watch={stats['new_candidates']['watchlist']} "
                  f"cand_market={stats['new_candidates']['market']} pages={stats['pages_checked']}")
     log.write_text("\n".join(lines[-500:]) + "\n")
-    report.build(data, cfg)
+    report.build(data, cfg, skip_verify=os.environ.get('RADAR_SKIP_VERIFY') == '1')
     return 0
 
 

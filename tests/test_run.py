@@ -46,7 +46,8 @@ def make_data(tmp: Path):
     (tmp / "index.csv").write_text("name,kind,ats,slug,added,source\nRemoteCo,startup,greenhouse,remoteco,2026-10-01,discover\n")
 
 
-def test_two_runs(tmp_path):
+def test_two_runs(tmp_path, monkeypatch):
+    monkeypatch.setenv("RADAR_SKIP_VERIFY", "1")
     make_data(tmp_path)
     html = {"v": PAGE1}
 
@@ -87,5 +88,5 @@ def test_two_runs(tmp_path):
     pend_id = [c["id"] for c in pend if c["layer"] == "market"][0]
     (tmp_path / "judged.json").write_text(json.dumps({pend_id: {"fit": "cut"}}))
     from radar import report
-    r = report.build(tmp_path)
+    r = report.build(tmp_path, skip_verify=True)
     assert not r["market_roles"] and r["hidden_cut"] == 1

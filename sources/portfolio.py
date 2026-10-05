@@ -21,9 +21,12 @@ TIMEOUT = 40
 def detect(board_url: str) -> dict | None:
     """Returns {"platform": "getro"|"consider", "network_id"|"board": ..., "base": url} or None."""
     base = board_url.rstrip("/")
+    sess = requests.Session()
+    sess.headers.update(UA)
     try:
-        r = requests.get(base + "/jobs", headers=UA, timeout=TIMEOUT)
+        r = sess.get(base + "/jobs", timeout=TIMEOUT)
         html = r.text
+        base = re.sub(r"/jobs/?(\?.*)?$", "", r.url).rstrip("/")   # follow redirects (www., https)
     except requests.RequestException:
         return None
     m = re.search(r'__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.S)
@@ -46,7 +49,7 @@ def detect(board_url: str) -> dict | None:
             return None
         tok = re.search(r'csrfToken(?:":|=)"?([A-Za-z0-9_-]{10,})', html)
         return {"platform": "consider", "board": board, "base": base, "csrf": tok.group(1) if tok else None,
-                "cookies": r.cookies.get_dict()}
+                "session": sess}
     return None
 
 
@@ -59,28 +62,34 @@ def _getro_post(network_id: str, what: str, body: dict, base: str) -> dict:
     return r.json()
 
 
-def getro_companies(network_id: str, base: str, max_pages: int = 60) -> list[dict]:
-    out, page = [], 1
+def getro_companies(network_id: str, base: str, max_pages: int = 200) -> list[dict]:
+    """Getro serves 12 companies per page and reports the total in results.count."""
+    out, page, total = [], 1, None
     while page <= max_pages:
-        data = _getro_post(network_id, "companies", {"page": page, "per_page": 100}, base)
-        items = (data.get("results") or {}).get("companies") or []
+        data = _getro_post(network_id, "companies", {"page": page}, base)
+        res = data.get("results") or {}
+        items = res.get("companies") or []
+        total = res.get("count", total)
         for c in items:
             out.append({"name": c.get("name"), "domain": c.get("domain"), "slug": c.get("slug"),
                         "locations": c.get("locations") or [], "stage": c.get("stage"),
                         "industries": c.get("visible_industry_tags") or c.get("industry_tags") or [],
                         "open_jobs": c.get("active_jobs_count"), "headcount_bucket": c.get("head_count"),
                         "board_page": f"{base}/companies/{c.get('slug')}"})
-        if len(items) < 100:
+        if not items or (total is not None and len(out) >= total):
             break
         page += 1
     return out
 
 
-def getro_jobs(network_id: str, base: str, max_pages: int = 80) -> list[dict]:
-    out, page = [], 1
+def getro_jobs(network_id: str, base: str, max_pages: int = 150) -> list[dict]:
+    """20 jobs per page; results.count is the total."""
+    out, page, total = [], 1, None
     while page <= max_pages:
-        data = _getro_post(network_id, "jobs", {"page": page, "per_page": 100}, base)
-        items = (data.get("results") or {}).get("jobs") or []
+        data = _getro_post(network_id, "jobs", {"page": page}, base)
+        res = data.get("results") or {}
+        items = res.get("jobs") or []
+        total = res.get("count", total)
         for j in items:
             org = j.get("organization") or {}
             wm = (j.get("work_mode") or "").lower()
@@ -89,7 +98,7 @@ def getro_jobs(network_id: str, base: str, max_pages: int = 80) -> list[dict]:
                         "remote": wm == "remote", "workplace": {"on_site": "onsite", "hybrid": "hybrid", "remote": "remote"}.get(wm, ""),
                         "url": j.get("url"), "published": j.get("created_at"), "department": "", "salary": "",
                         "description": ""})
-        if len(items) < 100:
+        if not items or (total is not None and len(out) >= total):
             break
         page += 1
     return out
@@ -97,7 +106,8 @@ def getro_jobs(network_id: str, base: str, max_pages: int = 80) -> list[dict]:
 
 # ---------------------------------------------------------------- Consider
 def _consider_post(info: dict, what: str, page: int, size: int = 100) -> dict:
-    r = requests.post(f"{info['base']}/api-boards/{what}", timeout=TIMEOUT, cookies=info.get("cookies") or {},
+    sess = info.get("session") or requests
+    r = sess.post(f"{info['base']}/api-boards/{what}", timeout=TIMEOUT,
                       headers={**UA, "Accept": "application/json", "Content-Type": "application/json",
                                "X-CSRF-Token": info.get("csrf") or ""},
                       json={"meta": {"size": size, "page": page}, "board": info["board"], "query": {}, "grouped": False})
@@ -105,10 +115,19 @@ def _consider_post(info: dict, what: str, page: int, size: int = 100) -> dict:
     return r.json()
 
 
+TOO_BROAD = 1500   # a "portfolio" this big is a shared network board, not one VC's portfolio
+
+
+class TooBroad(Exception):
+    pass
+
+
 def consider_companies(info: dict, max_pages: int = 40) -> list[dict]:
     out, page = [], 0
     while page < max_pages:
         data = _consider_post(info, "search-companies", page)
+        if page == 0 and (data.get("total") or 0) > TOO_BROAD:
+            raise TooBroad(f"board lists {data.get('total')} companies: shared network, not a portfolio")
         items = data.get("companies") or []
         for c in items:
             out.append({"name": c.get("name") or c.get("id"), "domain": c.get("domain"), "slug": c.get("slug") or c.get("id"),

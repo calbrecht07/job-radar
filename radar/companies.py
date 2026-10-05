@@ -93,6 +93,8 @@ def main(argv=None):
                 return owner, url, None, [], [], "not a Getro/Consider board (or unreachable)"
             jobs = portfolio.jobs(info)
             return owner, url, info["platform"], comps, jobs, None
+        except portfolio.TooBroad as e:
+            return owner, url, "consider", [], [], f"skipped: {e}"
         except Exception as e:
             return owner, url, None, [], [], f"{type(e).__name__}: {str(e)[:120]}"
 

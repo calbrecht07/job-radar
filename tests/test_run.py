@@ -62,6 +62,8 @@ def test_two_runs(tmp_path):
         wl = json.loads((tmp_path / "output/watchlist.json").read_text())["companies"]
         assert wl["Acme"]["roles"][0]["title"] == "Chief of Staff"
         assert wl["PageCo"]["page_status"] == "first_check"
+        q = json.loads((tmp_path / "output/review_queue.json").read_text())
+        assert {c["title"] for c in q} == {"Chief of Staff", "Solutions Engineer"}
         rep = (tmp_path / "report/report.md").read_text()
         assert "[Chief of Staff](https://jobs.ashbyhq.com/acme/1)" in rep and "Solutions Engineer" in rep
 

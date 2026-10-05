@@ -10,7 +10,8 @@ Data directory layout (your private repo):
                          name,kind,ats,slug,added,source
   judged.json            optional reviewer verdicts {id: {fit, note, ...}} (written by the reviewer)
 Written:
-  output/pending.json    new candidates waiting for review (both layers)
+  output/pending.json    new candidates (both layers), kept pending_days
+  output/review_queue.json  every open role without a verdict in judged.json, with its description
   output/watchlist.json  every watchlist company's current matching roles / page status
   output/health.json     run stats, failing boards
   output/board_audit.json  (--audit) job boards found on watchlist careers pages
@@ -185,6 +186,7 @@ def main(argv=None):
     drop = lambda r: stats["dropped"].__setitem__(r, stats["dropped"].get(r, 0) + 1)
     new_cands, current_keys, failed = [], set(), set()
     wl_status: dict = {}
+    wl_full: dict = {}          # watchlist roles with descriptions, for the review queue
 
     # ---- job-board feeds (both layers)
     t0 = time.time()
@@ -232,6 +234,7 @@ def main(argv=None):
                     drop(v.reason)
                 continue
             if c["layer"] == "watchlist":                 # status: every current match
+                wl_full[cand_id(key)] = candidate(c, p, v, key, max_desc)
                 wl_status[c["name"]]["roles"].append({
                     "id": cand_id(key), "title": p.get("title"), "url": p.get("url"), "pool": v.pool,
                     "locations": p.get("locations"), "workplace": p.get("workplace"),
@@ -314,6 +317,17 @@ def main(argv=None):
     save_json(data / "output/matches.json", matches)
     save_json(data / "output/health.json", stats)
     save_json(data / "output/watchlist.json", {"updated": stats["run_at"], "companies": wl_status})
+    # review queue: every open role without a verdict yet (watchlist roles + new market matches)
+    judged = load_json(data / "judged.json", {})
+    queue, qids = [], set()
+    for c in list(wl_full.values()) + pending:
+        if c["id"] not in judged and c["id"] not in qids:
+            qids.add(c["id"])
+            queue.append(c)
+    queue.sort(key=lambda x: (x["layer"] != "watchlist", x["kind"] != "vc", x["company"].lower()))
+    save_json(data / "output/review_queue.json", queue)
+    stats["review_queue"] = len(queue)
+    save_json(data / "output/health.json", stats)
     if args.audit:
         save_json(data / "output/board_audit.json", {"updated": stats["run_at"], "mismatches": audit})
     log = data / "output/runs.log"

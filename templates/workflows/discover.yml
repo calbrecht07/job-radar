@@ -1,0 +1,58 @@
+# Copy to .github/workflows/discover.yml in YOUR data repo (private).
+# Weekly: grows index.csv (the market search) from Common Crawl, plus any
+# boards listed in inbox/add.csv (lines: ats,slug,Company Name).
+name: discover
+
+on:
+  schedule:
+    - cron: "23 3 * * 0"   # Sundays 03:23 UTC
+  workflow_dispatch:
+    inputs:
+      max_pages:
+        description: "Common Crawl index pages per job-board domain"
+        default: "8"
+      max_probe:
+        description: "Max new company boards to probe"
+        default: "4000"
+
+concurrency:
+  group: radar-discover
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: calbrecht07/job-radar
+          path: .engine
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q -r .engine/requirements.txt
+      - name: Probe boards from inbox/add.csv
+        if: hashFiles('inbox/add.csv') != ''
+        run: |
+          set -o pipefail
+          PYTHONPATH=.engine python -m radar.discover --data . --slugs inbox/add.csv --keep-empty --source added 2>&1 | tee -a output/discover.log
+          git rm -q inbox/add.csv
+      - name: Harvest Common Crawl and probe
+        run: |
+          echo "== $(date -u +%FT%RZ)" >> output/discover.log
+          PYTHONPATH=.engine python -m radar.discover --data . --commoncrawl \
+            --max-pages "${{ github.event.inputs.max_pages || 8 }}" --max-probe "${{ github.event.inputs.max_probe || 4000 }}" 2>&1 | tee -a output/discover.log
+      - name: Commit index
+        run: |
+          git config user.name "job-radar-bot"
+          git config user.email "job-radar-bot@users.noreply.github.com"
+          git add -A index.csv state inbox output/discover.log
+          git diff --cached --quiet && exit 0
+          git commit -q -m "discover: index now $(($(wc -l < index.csv) - 1)) boards"
+          for i in 1 2 3; do git pull -q --rebase && git push -q && exit 0; sleep 5; done
+          exit 1

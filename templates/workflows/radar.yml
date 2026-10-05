@@ -1,0 +1,51 @@
+# Copy to .github/workflows/radar.yml in YOUR data repo (private).
+# Checks every company 6x a day, writes output/ and report/, commits them back.
+name: radar
+
+on:
+  schedule:
+    # UTC. Adjust to land ~30-45 min before you (or your reviewer) look at results.
+    - cron: "7 5,8,11,14,16,19 * * *"
+  workflow_dispatch:
+    inputs:
+      audit:
+        description: "Also audit job boards on every watchlist careers page"
+        type: boolean
+        default: false
+
+concurrency:
+  group: radar-run
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: calbrecht07/job-radar   # the engine (public)
+          path: .engine
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q -r .engine/requirements.txt
+      - name: Check companies, build report
+        run: |
+          AUDIT=""
+          # weekly board audit: first run on Mondays, or when asked
+          if [ "${{ github.event.inputs.audit }}" = "true" ] || [ "$(date -u +%u%H)" = "105" ]; then AUDIT="--audit"; fi
+          PYTHONPATH=.engine python -m radar.run --data . $AUDIT
+      - name: Commit results
+        run: |
+          git config user.name "job-radar-bot"
+          git config user.email "job-radar-bot@users.noreply.github.com"
+          git add state output report
+          git diff --cached --quiet && exit 0
+          git commit -q -m "radar: $(tail -n1 output/runs.log)"
+          for i in 1 2 3; do git pull -q --rebase && git push -q && exit 0; sleep 5; done
+          exit 1

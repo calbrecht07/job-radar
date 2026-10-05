@@ -1,0 +1,138 @@
+# Job Radar settings.
+# Every check reads this file. All patterns are case-insensitive regular
+# expressions; plain words work fine ("london", "chief of staff").
+# Keep the filters inclusive: they only build a shortlist. A reviewer
+# (you, or an AI agent) reads each job description and makes the real call.
+
+# ------------------------------------------------------------------- roles
+roles:
+  # A job title must match at least one of these...
+  include:
+    - deploy(ment|ed)                       # deployment strategist, forward deployed
+    - solutions? (engineer|consultant|architect|strateg|manager|lead|specialist)
+    - sales engineer|pre-?sales
+    - technical account manager|customer engineer
+    - implementation|onboarding (manager|lead|specialist)
+    - field (engineer|strateg)
+    - chief of staff
+    - founder'?s?'? (office|associate)
+    - founding (operator|generalist|bizops|strateg|associate)
+    - biz ?ops|business operations
+    - strategy (&|and|\+) ?op(eration)?s
+    - strategic (projects|initiatives|programs?|partnerships)
+    - special projects
+    - strategy (associate|manager|lead|analyst)|corporate strategy
+    - (ops|operations) (generalist|associate|lead)
+    - \bgeneralist\b
+    - (international|market) expansion|launch (lead|manager)
+    - general manager|\bgm\b
+    - product manager|product operations|product ops
+    - growth (strategy|operations|lead)
+    - (technical )?partnerships? (manager|lead)
+    - engagement manager|transformation
+  # ...extra titles that only count at VC firms (kind = vc)
+  include_vc:
+    - \banalyst\b
+    - \bassociate\b
+    - investor|investment
+    - venture (partner|fellow|builder|scout)|\bscout\b
+    - platform|portfolio|value creation
+    - entrepreneur in residence|\beir\b
+  # ...and must not match any of these.
+  exclude:
+    - \bintern(ship)?\b|graduate|apprentice|placement|working student|werkstudent
+    - ^stage\b|\bstage -|stagiaire|praktikum|alternance|apprentissage|\bbecario|\bpr[aá]cticas
+    - ^staff\b|\bstaff (engineer|product|software|data|designer|scientist|solutions|pm\b|technical)
+    - \bdirector\b|\bvp\b|vice president|\bsvp\b
+    - ^c[efortp]o\b|chief (executive|technology|operating|financial|revenue|product|marketing|commercial) officer
+    - account executive|\bae\b|\bsdr\b|\bbdr\b|sales development|business development representative
+    - recruit|talent acquisition|people partner
+    - counsel|paralegal|legal
+    - accountant|payroll|bookkeep|\btax\b
+    - executive assistant|office manager|receptionist
+    - software engineer|backend|frontend|full[- ]?stack|machine learning engineer|ml engineer|research (engineer|scientist)
+    - \bnurse\b|\bcarer\b|care assistant|driver
+
+# Which kinds of company to include (column `kind` in your lists).
+company_kinds: [startup, vc]
+
+# Which work modes you accept: onsite, hybrid, remote.
+work_modes: [onsite, hybrid, remote]
+
+# --------------------------------------------------------------- locations
+locations:
+  # On-site / hybrid roles must be here.
+  local:
+    label: London
+    match:
+      - london
+    # Postings that only name the wider region are kept, flagged "check the city".
+    region_wide:
+      - united kingdom|\buk\b|england|great britain
+  # Remote roles must be open to somewhere you can work from.
+  remote:
+    allowed_regions:                        # fine as-is
+      - europe|european|\beu\b|\beea\b|emea
+      - united kingdom|\buk\b|london|england|scotland|wales
+      - anywhere|worldwide|global|international|distributed|any location
+      - \bcet\b|\bcest\b|\bgmt\b|\bwet\b|\bbst\b
+    country_limited:                        # kept, flagged "residency" (often means living there)
+      - germany|deutschland|berlin|munich|münchen|hamburg|frankfurt|cologne|köln|dach
+      - portugal|lisbon|lisboa|porto
+      - ireland|dublin|netherlands|amsterdam|spain|madrid|barcelona|france|paris
+      - belgium|brussels|luxembourg|austria|vienna|switzerland|zurich|italy|milan|rome
+      - poland|warsaw|krakow|czech|prague|denmark|copenhagen|sweden|stockholm|norway|oslo
+      - finland|helsinki|estonia|tallinn|lithuania|latvia|romania|bulgaria|greece|athens
+      - hungary|budapest|croatia|slovenia|slovakia|serbia|belgrade|ukraine|cyprus|malta|iceland
+    blocked_regions:                        # remote roles only open to these are dropped
+      - united states|\busa?\b|\bu\.s\.|north america|americas|canada|mexico|latam|latin america|brazil|argentina|colombia
+      - \bapac\b|asia|india|singapore|australia|new zealand|japan|korea|china|hong kong|taiwan|philippines|vietnam|indonesia|thailand|malaysia
+      - middle east|\bmena\b|uae|dubai|saudi|israel|tel aviv|turkey|istanbul|africa|nigeria|kenya|egypt
+      - new york|san francisco|\bsf\b|california|texas|seattle|boston|chicago|austin|toronto
+    keep_unspecified: true                  # plain "Remote": keep, flagged "check the JD"
+
+# ------------------------------------------------- job description checks
+# Hard drops: postings whose description contains these are dropped.
+# `pools` limits a rule to local or remote roles.
+drops:
+  - pattern: \b(8|9|1[0-9])\+? ?(years|yrs)
+    reason: 8+ years required
+  - pattern: (unable|not able|cannot|can't|do not|don't|will not|won't) (to )?(offer |provide )?(visa )?sponsor
+    reason: no visa sponsorship
+    pools: [local]
+  - pattern: (must|need to|required to) (be )?(located|based|reside|live) in the (us|u\.s\.|united states)
+    reason: US residency required
+  - pattern: (authori[sz]ed|eligible|legally able) to work in the (us|u\.s\.|united states)
+    reason: US work authorisation required
+    pools: [remote]
+  - pattern: \b(sc|dv|security) clearance|clearance (is )?required
+    reason: security clearance
+
+# Soft flags: shown next to the role, nothing dropped.
+flags:
+  - pattern: native (french|spanish|italian|dutch|swedish|danish|norwegian|finnish|polish|japanese|mandarin|portuguese)|fluent (in )?(french|spanish|italian|dutch|swedish|danish|norwegian|finnish|polish|japanese|mandarin)
+    flag: language requirement
+  - pattern: employer of record|\beor\b|deel|oyster|remote\.com|contractor|freelance
+    flag: EOR / contractor setup
+  - pattern: \b([5-7])\+? ?(years|yrs)
+    flag: 5-7 years asked
+  - pattern: quota|on-target earnings|\bote\b
+    flag: quota / OTE
+  - pattern: (on[- ]?site|in[- ]?office) (5|five) days
+    flag: 5 days on site
+
+# --------------------------------------------------------------- freshness
+freshness:
+  # Companies added from these sources: current roles are recorded silently on
+  # the first check (you reviewed them already). Use the `source` column.
+  first_fetch_silent_sources: [seed]
+  # Other new companies: only surface roles posted within this many days on the first check.
+  first_fetch_max_age_days: 21
+  # Market search only: ignore postings older than this (0 = no limit).
+  market_max_age_days: 45
+
+# ------------------------------------------------------------------ output
+output:
+  pending_days: 10              # how long unreviewed candidates stay in the queue
+  max_description_chars: 7000   # job description length passed to the reviewer
+  report_market_days: 7         # market section of the report shows the last N days

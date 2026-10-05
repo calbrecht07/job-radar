@@ -100,7 +100,7 @@ def main(argv=None):
         except Exception as e:
             return owner, url, None, [], [], f"{type(e).__name__}: {str(e)[:120]}"
 
-    with ThreadPoolExecutor(max_workers=args.workers) as ex:
+    with ThreadPoolExecutor(max_workers=3) as ex:            # Getro rate-limits bursts: go gently
         results = list(ex.map(one_board, boards_cfg))
     for owner, url, platform, comps, jobs, err in results:
         board_health.append({"vc": owner, "url": url, "platform": platform, "companies": len(comps), "jobs": len(jobs), "error": err})
@@ -125,7 +125,12 @@ def main(argv=None):
     own_site_jobs = [j for j in port_jobs if not board_from_url(j.get("url"))]
 
     # ---- news
-    news_items = news_src.collect(cs.get("news_feeds"), days=int(cs.get("news_days", 8)), region_terms=cs.get("region_terms"))
+    # all funding/expansion items; region matches first (Snoopy decides, the headline is usually enough)
+    news_items = news_src.collect(cs.get("news_feeds"), days=int(cs.get("news_days", 8)))
+    for it in news_items:
+        it["in_region"] = bool(region and region.search(it.get("title", "") + " " + it.get("summary", "")))
+    news_items.sort(key=lambda it: (not it.get("in_region"), it.get("published") or ""), reverse=False)
+    news_items = [it for it in news_items if it.get("in_region")] + [it for it in news_items if not it.get("in_region")][:60]
 
     # relevance: how many of a company's portfolio-board jobs match the person's role titles (any location)
     # and how many of those are in region / remote-OK
@@ -178,7 +183,8 @@ def main(argv=None):
         e["role_examples"] = mc.get("examples", [])
 
     companies = sorted(pool.values(), key=lambda c: c["name"].lower())
-    new_keys = [c["key"] for c in companies if c["key"] not in prev_pool]
+    week_ago = (NOW - __import__("datetime").timedelta(days=7)).date().isoformat()
+    new_keys = [c["key"] for c in companies if c.get("first_seen", TODAY) >= week_ago]
     # Monday review list: new companies with at least one matching role open in region, best first.
     # Everything else new is counted, not listed (the opportunity search still covers their boards).
     in_region_new = sorted(

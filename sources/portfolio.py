@@ -55,9 +55,17 @@ def detect(board_url: str) -> dict | None:
 
 # ------------------------------------------------------------------- Getro
 def _getro_post(network_id: str, what: str, body: dict, base: str) -> dict:
-    r = requests.post(f"https://api.getro.com/api/v2/collections/{network_id}/search/{what}", json=body, timeout=TIMEOUT,
-                      headers={**UA, "Accept": "application/json", "Content-Type": "application/json",
-                               "Origin": base, "Referer": base + "/"})
+    import time
+    for attempt in range(6):
+        r = requests.post(f"https://api.getro.com/api/v2/collections/{network_id}/search/{what}", json=body, timeout=TIMEOUT,
+                          headers={**UA, "Accept": "application/json", "Content-Type": "application/json",
+                                   "Origin": base, "Referer": base + "/"})
+        if r.status_code == 429 or r.status_code >= 500:
+            time.sleep(min(2 ** attempt * 1.5, 40))      # Getro rate-limits bursts
+            continue
+        r.raise_for_status()
+        time.sleep(0.25)
+        return r.json()
     r.raise_for_status()
     return r.json()
 
@@ -128,7 +136,16 @@ def consider_companies(info: dict, cap: int = 5000) -> list[dict]:
     total = first.get("total") if isinstance(first.get("total"), int) else 50
     if total > TOO_BROAD:
         raise TooBroad(f"board lists {total} companies: shared network, not a portfolio")
-    data = first if total <= 50 else _consider_post(info, "search-companies", 0, size=min(total, cap))
+    data = first
+    if total > 50:
+        for size in [min(total, cap), 800, 400]:
+            try:
+                data = _consider_post(info, "search-companies", 0, size=size)
+                break
+            except requests.HTTPError as e:
+                if e.response is not None and e.response.status_code >= 500 and size > 400:
+                    continue
+                raise
     out, seen = [], set()
     for c in data.get("companies") or []:
         key = c.get("id") or c.get("name")
@@ -145,7 +162,18 @@ def consider_companies(info: dict, cap: int = 5000) -> list[dict]:
 def consider_jobs(info: dict, cap: int = 8000) -> list[dict]:
     first = _consider_post(info, "search-jobs", 0, size=50)
     total = first.get("total") if isinstance(first.get("total"), int) else 50
-    data = first if total <= 50 else _consider_post(info, "search-jobs", 0, size=min(total, cap))
+    data = first
+    if total > 50:
+        for size in [min(total, cap), 1500, 1000, 600, 300]:   # very large single requests sometimes 500
+            if size > total and size != min(total, cap):
+                continue
+            try:
+                data = _consider_post(info, "search-jobs", 0, size=size)
+                break
+            except requests.HTTPError as e:
+                if e.response is not None and e.response.status_code >= 500 and size > 300:
+                    continue
+                raise
     out, seen = [], set()
     for j in data.get("jobs") or []:
         key = str(j.get("id") or j.get("applyUrl"))

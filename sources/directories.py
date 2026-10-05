@@ -74,7 +74,8 @@ def companies(source: dict) -> list[dict]:
         except portfolio.TooBroad:
             info, comps = None, []
         if info:
-            return [{"name": c.get("name"), "website": ("https://" + c["domain"]) if c.get("domain") else ""}
+            return [{"name": c.get("name"), "website": ("https://" + c["domain"]) if c.get("domain") else "",
+                     "locations": c.get("locations") or []}
                     for c in comps if c.get("name")]
         if kind != "auto":
             return []

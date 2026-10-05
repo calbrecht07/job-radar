@@ -200,3 +200,32 @@ def test_company_time_budget():
 def test_parse_industries():
     assert directory.parse_industries(["fintech", {"name": "watertech", "search": ["water treatment", "desalination"]}, "", None]) == \
         [("fintech", []), ("watertech", ["water treatment", "desalination"])]
+
+
+def test_directory_boards_keep_only_the_area():
+    flt = Filters(SETTINGS)
+    assert directory.in_area(["London, UK"], flt, None) and directory.in_area([], flt, None)
+    assert directory.in_area(["Remote - Europe"], flt, None)
+    assert not directory.in_area(["San Francisco, CA", "New York"], flt, None)
+    board = [{"name": "Here Co", "website": "https://here.co", "locations": ["London"]},
+             {"name": "There Inc", "website": "https://there.com", "locations": ["Austin, TX"]}]
+    outside = set()
+    with mock.patch.object(directories, "companies", lambda s: board):
+        got = directory.from_directories([{"url": "https://jobs.vc.com", "name": "VC"}], lambda m: None, flt, None, outside)
+    assert [c["name"] for c in got] == ["Here Co"] and outside == {"there.com"}
+
+
+def test_wikidata_retries_unreadable_reply():
+    from sources import wikidata
+    replies = iter([R(text="<html>busy</html>"), R(text='{"results": {"bindings": [1]}}')])
+
+    class J(R):
+        pass
+
+    def get(*a, **k):
+        r = next(replies)
+        r.ok = True
+        r.json = lambda: __import__("json").loads(r.text)
+        return r
+    with mock.patch.object(wikidata._S, "get", get), mock.patch.object(wikidata.time, "sleep"):
+        assert wikidata._sparql("SELECT 1") == [1]

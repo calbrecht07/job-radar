@@ -46,8 +46,12 @@ def _sparql(query: str, retries: int = 3) -> list[dict]:
                 time.sleep(min(wait, 60))
                 continue
             if r.ok:
-                return r.json()["results"]["bindings"]
-            last = f"HTTP {r.status_code}"
+                try:
+                    return r.json()["results"]["bindings"]
+                except (ValueError, KeyError):          # a throttle or error page served with 200: retry
+                    last = "unreadable response"
+            else:
+                last = f"HTTP {r.status_code}"
         except requests.RequestException as e:
             last = type(e).__name__
         time.sleep(5 * (i + 1))

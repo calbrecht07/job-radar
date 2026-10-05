@@ -217,7 +217,21 @@ def from_wikidata(cs: dict, log) -> list[dict]:
     return out
 
 
-def from_directories(sources: list[dict], log) -> list[dict]:
+def in_area(locations: list[str], flt: Filters, region: re.Pattern | None) -> bool:
+    """A company belongs in this city's directory if any of its locations is the city, the person's region,
+    or a remote region they accept. Companies with no location given are kept (can't tell)."""
+    locs = [l for l in locations or [] if l]
+    if not locs:
+        return True
+    text = " | ".join(locs)
+    return bool(any(rx.search(text) for rx in flt.local + flt.region_wide + flt.allowed)
+                or (region and region.search(text)))
+
+
+def from_directories(sources: list[dict], log, flt: Filters | None = None, region: re.Pattern | None = None,
+                     outside: set | None = None) -> list[dict]:
+    """Companies on directory pages. Portfolio boards list companies worldwide: those located elsewhere are
+    left out (their keys go into `outside`, so earlier runs' rows can be pruned)."""
     out = []
     for s in sources:
         try:
@@ -228,9 +242,15 @@ def from_directories(sources: list[dict], log) -> list[dict]:
         label = s.get("name") or careers.registrable(s["url"])
         inds = [i.strip() for i in (s.get("industries") or "").split(";") if i.strip()] if isinstance(s.get("industries"), str) \
             else list(s.get("industries") or [])
+        kept = 0
         for c in found:
+            if flt is not None and not in_area(c.get("locations"), flt, region):
+                if outside is not None:
+                    outside.add(company_key(c.get("name", ""), c.get("website", "")))
+                continue
+            kept += 1
             out.append({**c, "sources": [f"directory:{label}"], "industries": inds})
-        log(f"directory {label}: {len(found)} companies")
+        log(f"directory {label}: {len(found)} companies, {kept} in the area")
     return out
 
 
@@ -309,7 +329,17 @@ def main(argv=None):
             cands += from_wikidata(cs, log)
         except RuntimeError as e:
             log(f"wikidata unavailable: {e}")
-    cands += from_directories(dir_sources, log)
+    region = re.compile("|".join(cs["region_terms"]), re.I) if cs.get("region_terms") else None
+    outside: set = set()
+    cands += from_directories(dir_sources, log, flt, region, outside)
+    # rows that came only from directory boards and turned out to be elsewhere (earlier runs kept them)
+    pruned = [k for k, r in directory.items() if k in outside
+              and all(src.startswith("directory:") for src in (r.get("sources") or "").split("; ") if src)]
+    for k in pruned:
+        del directory[k]
+    if pruned:
+        log(f"directory: removed {len(pruned)} companies located outside the area")
+    before -= set(pruned)
     cands += from_pool(data)
     cands += research
     names = {norm(r["name"]): k for k, r in directory.items() if norm(r["name"])}

@@ -188,3 +188,8 @@ def test_company_time_budget():
             pass
     finally:
         careers._LOCAL.deadline = None
+
+
+def test_parse_industries():
+    assert directory.parse_industries(["fintech", {"name": "watertech", "search": ["water treatment", "desalination"]}, "", None]) == \
+        [("fintech", []), ("watertech", ["water treatment", "desalination"])]

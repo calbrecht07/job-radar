@@ -162,6 +162,19 @@ def merge(directory: dict, cand: dict, names: dict | None = None) -> dict:
 
 
 # ---------------------------------------------------------------- sources
+def parse_industries(raw) -> list[tuple[str, list[str]]]:
+    """settings industries: plain text ("fintech") or {name, search: [terms]} when the person's word isn't one
+    Wikidata uses ("watertech" -> water treatment, desalination). With `search`, only those terms are searched;
+    the name stays the label. -> [(name, search terms)]"""
+    out = []
+    for item in raw or []:
+        if isinstance(item, dict) and item.get("name"):
+            out.append((str(item["name"]), [str(t) for t in item.get("search") or []]))
+        elif isinstance(item, str) and item.strip():
+            out.append((item.strip(), []))
+    return out
+
+
 def from_wikidata(cs: dict, log) -> list[dict]:
     city, country = cs.get("city"), cs.get("country", "")
     out = []
@@ -170,29 +183,37 @@ def from_wikidata(cs: dict, log) -> list[dict]:
         log(f"wikidata: city {city!r} not found")
         return out
     log(f"wikidata: {place['label']} ({place['qid']}, {place['country']})")
-    terms = [t for t in cs.get("industries") or [] if t]
+    industries = parse_industries(cs.get("industries"))
     city_cos = wikidata.companies_in_city(place["qid"])
-    # free-text industries also match a company's description (Wikidata has no item for e.g. "climate tech")
+    # industries also match a company's description (Wikidata has no item for e.g. "climate tech")
     for c in city_cos:
         text = (c.get("description") or "") + " " + " ".join(c["industries"])
-        c["industries"] = c["industries"] + [t for t in terms if re.search(r"\b" + re.escape(t), text, re.I)]
+        c["industries"] = c["industries"] + [name for name, terms in industries
+                                             if any(re.search(r"\b" + re.escape(t), text, re.I) for t in [name] + terms)]
     out += city_cos
     log(f"wikidata: {len(city_cos)} companies headquartered in {place['label']}")
     country_qid = wikidata.country_of(place["qid"])
     min_emp = int(cs.get("industry_min_employees") or 1000)
-    for term in terms:
+    for name, terms in industries:
+        inds: dict = {}
+        for term in terms or [name]:
+            try:
+                for i in wikidata.find_industries(term):
+                    inds.setdefault(i["qid"], i)
+            except RuntimeError as e:
+                log(f"wikidata: industry {name!r} / {term!r} failed: {e}")
+            time.sleep(1)
         try:
-            inds = wikidata.find_industries(term)
-            found = wikidata.companies_in_industries([i["qid"] for i in inds], country_qid=country_qid,
-                                                     min_employees=min_emp, label=term) if inds else []
+            found = wikidata.companies_in_industries(list(inds), country_qid=country_qid,
+                                                     min_employees=min_emp, label=name) if inds else []
         except RuntimeError as e:
-            log(f"wikidata: industry {term!r} failed: {e}")
+            log(f"wikidata: industry {name!r} failed: {e}")
             continue
         for c in found:
-            c["industries"] = list(dict.fromkeys(c["industries"] + [term]))
+            c["industries"] = list(dict.fromkeys(c["industries"] + [name]))
         out += found
-        log(f"wikidata: industry {term!r}: {len(inds)} Wikidata industries, {len(found)} companies")
-        time.sleep(1)
+        log(f"wikidata: industry {name!r}: {len(inds)} Wikidata industries, {len(found)} companies"
+            + ("" if inds else " (no Wikidata industry matches: add `search` terms, or ask for research)"))
     return out
 
 

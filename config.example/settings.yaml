@@ -145,9 +145,13 @@ company_search:
   # ---- company directory (radar.directory, weekly): every company worth watching in your city
   city: London                   # any city Wikidata knows
   country: United Kingdom        # optional: picks the right city when the name is ambiguous
-  # Free text, your own words. Matched to Wikidata industries (and to company descriptions), so
-  # companies in these industries are found even when headquartered elsewhere.
-  industries: [fintech, artificial intelligence, climate tech]
+  # Your own words. Matched to Wikidata industries (and to company descriptions), so companies in
+  # these industries are found even when headquartered elsewhere. When your word isn't one Wikidata
+  # uses (the run log says "no Wikidata industry matches"), say what to search for instead.
+  industries:
+    - fintech
+    - artificial intelligence
+    - {name: climate tech, search: [renewable energy, energy storage, carbon capture]}
   industry_min_employees: 1000   # industry companies outside your country: only this size and up
   # Pages listing companies: accelerator alumni, association members, award lists, VC portfolios.
   # type: getro | consider (VC job boards), list (any page whose links are the companies), auto

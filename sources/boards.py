@@ -307,8 +307,89 @@ def bamboohr(slug: str) -> list[dict]:
     return out
 
 
+# --------------------------------------------------------------- Teamtailor
+def teamtailor(slug: str) -> list[dict]:
+    """Career sites publish an RSS feed of open jobs (no description-free rows; locations in tt: tags)."""
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(_get_text(f"https://{slug}.teamtailor.com/jobs.rss").encode())
+    out = []
+    for it in root.iter("item"):
+        g = lambda tag: (it.findtext(tag) or "").strip()
+        locs = [(l.text or "").strip() for l in it.iter() if l.tag.endswith("}location") or l.tag.endswith("}locations")]
+        locs = [x for x in locs if x]
+        remote_tag = any(e.tag.endswith("}remote") and (e.text or "").strip().lower() == "true" for e in it.iter())
+        out.append({
+            "id": g("guid") or g("link"),
+            "title": g("title"),
+            "locations": locs,
+            "remote": remote_tag,
+            "workplace": "remote" if remote_tag else "",
+            "url": g("link"),
+            "published": g("pubDate") or None,
+            "department": next(((e.text or "").strip() for e in it.iter() if e.tag.endswith("}department")), ""),
+            "salary": "",
+            "description": strip_html(g("description")),
+        })
+    return out
+
+
+# ---------------------------------------------------------------- Trakstar
+def trakstar(slug: str) -> list[dict]:
+    """Trakstar Hire (ex Recruiterbox): public JSON used by their career widgets."""
+    out, offset = [], 0
+    while True:
+        data = _get("https://jsapi.recruiterbox.com/v1/openings", {"client_name": slug, "offset": offset, "limit": 50})
+        items = data.get("objects", [])
+        for j in items:
+            loc = j.get("location") or {}
+            place = ", ".join(x for x in [loc.get("city"), loc.get("state"), loc.get("country")] if x)
+            out.append({
+                "id": j.get("id"),
+                "title": j.get("title", ""),
+                "locations": [place] if place else [],
+                "remote": bool(j.get("allows_remote")),
+                "workplace": "remote" if j.get("allows_remote") else "",
+                "url": j.get("hosted_url") or f"https://{slug}.hire.trakstar.com/jobs/{j.get('id')}/",
+                "published": j.get("created_at") or j.get("created_on"),
+                "department": (j.get("team") or {}).get("name", "") if isinstance(j.get("team"), dict) else (j.get("team") or ""),
+                "salary": "",
+                "description": strip_html(j.get("description")),
+            })
+        offset += len(items)
+        if not items or offset >= (data.get("meta") or {}).get("total", 0):
+            break
+    return out
+
+
+# ---------------------------------------------------------------- Rippling
+def rippling(slug: str) -> list[dict]:
+    data = _get(f"https://api.rippling.com/platform/api/ats/v1/board/{slug}/jobs")
+    out = []
+    for j in data if isinstance(data, list) else data.get("jobs", []):
+        locs = []
+        for l in j.get("locations") or ([j["location"]] if j.get("location") else []):
+            locs.append(l if isinstance(l, str) else ", ".join(x for x in [l.get("city"), l.get("state"), l.get("country")] if x))
+        wp = (j.get("workLocationType") or j.get("workplaceType") or "").lower()
+        out.append({
+            "id": j.get("uuid") or j.get("id"),
+            "title": j.get("name") or j.get("title", ""),
+            "locations": [l for l in locs if l],
+            "remote": wp == "remote",
+            "workplace": wp,
+            "url": j.get("url") or f"https://ats.rippling.com/{slug}/jobs/{j.get('uuid') or j.get('id')}",
+            "published": j.get("publishedAt") or j.get("createdAt"),
+            "department": j.get("department") or "",
+            "salary": "",
+            "description": strip_html(j.get("description")),
+        })
+    return out
+
+
 ADAPTERS = {
     "bamboohr": bamboohr,
+    "teamtailor": teamtailor,
+    "trakstar": trakstar,
+    "rippling": rippling,
     "ashby": ashby,
     "greenhouse": greenhouse, "greenhouse-eu": greenhouse,
     "lever": lever, "lever-eu": lambda s: lever(s, eu_first=True),
@@ -341,14 +422,14 @@ BOARD_PATTERNS = [
     ("personio", r"([\w-]+)\.jobs\.personio\.(?:de|com)"),
     ("smartrecruiters", r"(?:jobs|careers)\.smartrecruiters\.com/([\w-]+)"),
     ("bamboohr", r"([\w-]+)\.bamboohr\.com/(?:careers|jobs)"),
-    # recognised but not supported by a feed adapter (reported, checked by page)
     ("teamtailor", r"([\w-]+)\.teamtailor\.com"),
+    ("trakstar", r"([\w-]+)\.hire\.trakstar\.com"),
+    ("rippling", r"ats\.rippling\.com/([\w-]+)"),
+    # recognised but not supported by a feed adapter (reported, checked by page)
     ("pinpoint", r"([\w-]+)\.pinpointhq\.com"),
     ("workday", r"([\w-]+)\.wd\d+\.myworkdayjobs\.com"),
     ("hibob", r"([\w-]+)\.careers\.hibob\.com"),
-    ("rippling", r"ats\.rippling\.com/([\w-]+)"),
     ("dover", r"app\.dover\.com/jobs/([\w-]+)"),
-    ("trakstar", r"([\w-]+)\.hire\.trakstar\.com"),
 ]
 _IGNORE_SLUGS = {"www", "api", "app", "jobs", "careers", "embed", "j", "static", "assets", "cdn", "js",
                  "staticfe", "resources", "bhrpendo", "support", "help", "marketing"}

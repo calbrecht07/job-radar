@@ -1,0 +1,22 @@
+# agent/config.yaml: tells Snoopy where everything is. Lives in the DATA repo.
+person: Your Name
+framework_repo: calbrecht07/job-radar          # the public engine
+data_repo: your-github/your-job-radar-data      # this repo
+report_artifact: ""                             # claude.ai/artifact/... once published
+schedule:
+  timezone: Europe/London
+  runs: ["10:00", "17:30"]                      # weekdays
+  company_review_day: Monday
+# Optional: notes app on your computer (see agent/VAULT.md). Remove the block if unused.
+vault:
+  root: "/path/to/your/notes"
+  settings_note: "Job Radar Settings.md"        # ```yaml block = settings.yaml
+  wishlist_note: "Target Companies.md"
+  report_note: "Job Radar Report.md"
+  alerts_note: "Job Alerts.md"
+  remote_alerts_note: "Remote Alerts.md"
+  log_note: "Radar Updates.md"
+  profile_files:
+    - {note: "_context/Judging Rules.md", target: "profile/rules.md"}
+    - {note: "Templates/Experience Bank.md", target: "profile/experience.md"}
+  extra_steps: []

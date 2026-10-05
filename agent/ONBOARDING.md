@@ -1,0 +1,38 @@
+# Onboarding: set up job-radar for a new person
+
+You are helping someone set up their own job radar. Work through this with them, then create their data repo. The whole setup is: one private data repo, two GitHub workflows, one scheduled agent (Snoopy), one report page.
+
+## 1. Ask (one message, all questions at once)
+
+1. **Roles.** Which job titles or role families do you want? Which do you never want (e.g. sales quota roles, internships, pure engineering)?
+2. **Where.** Which city for on-site/hybrid roles? Is remote OK, and from which regions (e.g. UK, EU, anywhere)? Any countries to exclude?
+3. **Work mode.** On-site, hybrid, remote, or any mix?
+4. **Company types.** Startups/scaleups, VC firms, both? Which sectors? Any kinds of company to skip?
+5. **Hard limits.** Years of experience you won't stretch to; visa or work-permit constraints; languages you don't speak; anything else that is an automatic no.
+6. **Wishlist.** Companies you already want watched (names are enough; the collector finds their job boards).
+7. **VC portfolio boards.** Which VCs' job boards should feed the company pool? (Give sensible defaults for their region if they don't know.)
+8. **Your background**, for judging fit: a CV or a paragraph per role with dates, plus education and languages. This becomes `profile/brief.md`. Only facts they give you.
+9. **Notes app.** Do you keep notes in Obsidian or similar and want the report and alerts written there? (Optional.)
+10. **Schedule.** What time(s) should Snoopy run, and in which time zone? Weekdays only?
+
+## 2. Build the data repo
+
+Ask them to create a **private, empty** GitHub repo and give the agent app access to it. Then:
+
+- `settings.yaml`: start from `config.example/settings.yaml`; translate their answers into `roles`, `locations`, `work_modes`, `company_kinds`, `drops`, `flags`, `company_search`.
+- `wishlist.csv`: their companies (`name,kind,ats,slug,careers_url,source,note`; leave `ats`/`slug` empty if unknown, set `source=seed`).
+- `index.csv`: header only.
+- `profile/brief.md`: who they are, in the shape of `agent/templates/brief.md`. `profile/rules.md`: their judging rules, from `agent/templates/rules.md`.
+- `agent/config.yaml`: from `agent/templates/config.yaml` (name, repos, artifact URL once published, vault section if any, schedule).
+- `.github/workflows/`: copy `templates/workflows/scan.yml` and `templates/workflows/companies.yml`. In the repo settings: Actions → Workflow permissions → **Read and write**.
+- `judged.json` = `{}`, `extra_roles.json` = `[]`.
+
+## 3. First runs
+
+1. Start the `companies` workflow (builds the pool), then `scan` (first scan + report).
+2. Review the first queue yourself with the person present: it calibrates the rules. Adjust `settings.yaml` and `profile/rules.md` with what you learn.
+3. Publish `report/index.html` as an artifact; put its URL in `agent/config.yaml`.
+4. Create the scheduled task from `agent/templates/task-prompt.md` at their chosen times. It must not require web fetches; if it needs their computer (vault), bind it to that computer.
+5. Add the daily digest if they want one place to read results (`agent/templates/digest-prompt.md`).
+
+Tell them: edit `settings.yaml` (or their settings note) to change what is found; edit `wishlist.csv` to change who is watched; the report page updates after every Snoopy run.

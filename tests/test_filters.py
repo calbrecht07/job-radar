@@ -105,7 +105,7 @@ def test_staff_titles():
 
 
 def test_too_old():
-    from radar.run import too_old
+    from radar.scan import too_old
     assert too_old("2025-01-01T00:00:00Z", "2026-09-14T00:00:00+00:00")
     assert not too_old("2026-10-01", "2026-09-14T00:00:00+00:00")
     assert not too_old(None, "2026-09-14T00:00:00+00:00")

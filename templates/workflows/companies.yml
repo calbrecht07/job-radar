@@ -1,0 +1,57 @@
+# Copy to .github/workflows/companies.yml in YOUR data repo (private).
+# Weekly company search: VC portfolio boards, funding news, Common Crawl discovery, hidden boards
+# for wishlist companies. Writes pool/ and grows index.csv. Snoopy reviews pool/new_this_week.json.
+name: companies
+
+on:
+  schedule:
+    - cron: "23 3 * * 1"   # Mondays 03:23 UTC, before Snoopy's Monday run
+  workflow_dispatch:
+    inputs:
+      skip_discovery:
+        description: "Skip the (slow) Common Crawl harvest"
+        type: boolean
+        default: false
+
+concurrency:
+  group: radar-companies
+  cancel-in-progress: false
+permissions:
+  contents: write
+
+jobs:
+  companies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: calbrecht07/job-radar
+          path: .engine
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q -r .engine/requirements.txt
+      - name: Find hidden job boards for wishlist companies
+        run: PYTHONPATH=.engine python -m radar.discover --data . --fill-wishlist 2>&1 | tee -a pool/companies.log
+      - name: Boards added by hand (inbox/add.csv)
+        if: hashFiles('inbox/add.csv') != ''
+        run: |
+          set -o pipefail
+          PYTHONPATH=.engine python -m radar.discover --data . --slugs inbox/add.csv --keep-empty --source added 2>&1 | tee -a pool/companies.log
+          git rm -q inbox/add.csv
+      - name: Common Crawl discovery
+        if: github.event.inputs.skip_discovery != 'true'
+        run: PYTHONPATH=.engine python -m radar.discover --data . --commoncrawl --max-pages 8 --max-probe 4000 2>&1 | tee -a pool/companies.log
+      - name: Portfolio boards, news, unified pool
+        run: PYTHONPATH=.engine python -m radar.companies --data . 2>&1 | tee -a pool/companies.log
+      - name: Commit
+        run: |
+          git config user.name "job-radar-bot"
+          git config user.email "job-radar-bot@users.noreply.github.com"
+          git add -A index.csv wishlist.csv state pool; [ -d inbox ] && git add -A inbox
+          git diff --cached --quiet && exit 0
+          git commit -q -m "companies: pool $(python -c "import json;print(json.load(open('pool/companies.json'))['count'])") companies"
+          for i in 1 2 3; do git pull -q --rebase && git push -q && exit 0; sleep 5; done
+          exit 1

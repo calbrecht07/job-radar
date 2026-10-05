@@ -1,55 +1,78 @@
 # job-radar
 
-A job-search radar that runs itself. It checks the job boards of the companies you care about every few hours, searches thousands of other companies' boards for the roles you want, and writes a report with a link to every matching role.
+A job-search radar you hand to your AI assistant. The code finds the companies and the openings; one agent, **Snoopy**, judges them against your background and keeps a report with a link to every matching role. You answer the onboarding questions once, then it runs itself.
 
-It reads the **public job feeds** companies use to power their careers pages (Ashby, Greenhouse, Lever, Workable, Breezy, Recruitee, Personio, SmartRecruiters), so new roles show up as soon as they're posted, often days before LinkedIn.
+**Give this to your assistant:** "Set up job-radar for me. Read `agent/ONBOARDING.md` in github.com/calbrecht07/job-radar and follow it."
 
 ## How it works
 
-| Layer | What | How |
-|---|---|---|
-| **1. Watchlist** | Companies you always want checked (`watchlist.csv`) | Every run: all their current matching roles. Companies without a feed: their careers page is checked for changes. Weekly: an audit of which job boards each careers page links to, so nothing is missed. |
-| **2. Market search** | Every company in the market index (`index.csv`, thousands of boards) | Every run: new postings that match your settings (roles, location, on-site/hybrid/remote, company type, hard requirements, freshness). |
-| **3. Discovery** | Grows the market index | Weekly: harvests job-board addresses from [Common Crawl](https://commoncrawl.org) and keeps boards that are hiring for your kind of role. You can also add boards by hand. |
+```
+  weekly: COMPANY SEARCH            6x daily: OPPORTUNITY SEARCH          1-2x daily: SNOOPY (the agent)
+  ┌─────────────────────────┐       ┌────────────────────────────────┐    ┌────────────────────────────┐
+  │ your wishlist           │       │ every company in the pool:     │    │ reads the review queue     │
+  │ VC portfolio boards     │ ───▶  │  job-board feeds (12 platforms)│ ─▶ │ judges: keep/stretch/cut   │
+  │ funding news (RSS)      │ pool/ │  own-site careers pages        │    │ Monday: reviews new        │
+  │ Common Crawl discovery  │       │  portfolio-board postings      │    │   companies for the        │
+  │ hidden-board finder     │       │ filter → queue + descriptions  │    │   wishlist                 │
+  └─────────────────────────┘       └────────────────────────────────┘    │ publishes the report page  │
+        GitHub Actions                      GitHub Actions                 │ writes your notes, notifies│
+                                                                           └────────────────────────────┘
+```
 
-Each run writes `report/report.md` (and `report.json`): watchlist companies with their matching roles, careers pages that changed, new market matches, and anything that needs attention. Every role links to the posting.
+- **Company search** (`radar.companies`, weekly): pulls portfolio companies and jobs from VC job boards (Getro and Consider, the two platforms behind most of them), funding and expansion news from RSS feeds, job boards harvested from Common Crawl, and hidden boards for your wishlist companies. Writes `pool/`.
+- **Opportunity search** (`radar.scan`, six times a day): reads every company's job board directly, so a role shows up within hours of posting. Reads careers pages of companies without a feed, and the portfolio-board postings of companies that only post on their own site. Loose keyword filters build the **review queue**, with each job description fetched.
+- **Snoopy** (`agent/SNOOPY.md`): the only AI step. Reads the queue, applies your rules, writes verdicts, rebuilds and publishes the report. On Mondays it reviews the week's new companies and news and promotes the good ones to your wishlist. It never opens web pages, so it never needs approvals.
 
-The filters are deliberately loose: they build a shortlist. A reviewer (you, or an AI agent) reads the job descriptions and marks roles in `judged.json` (`keep` / `stretch` / `cut`); the report shows the verdicts and hides cut roles.
+Two repos: this one (framework, public, no personal data) and your private **data repo** (settings, wishlist, pool, results, profile). Workflows in your data repo check this one out and run it.
 
-## Set up your own
+## Supported job-board platforms
 
-1. Create a **private** GitHub repo for your data (your settings and results stay private).
-2. Copy into it:
-   - `config.example/settings.yaml` → `settings.yaml` (edit: roles, city, remote regions, work modes, hard drops)
-   - `config.example/watchlist.csv` → `watchlist.csv` (your target companies)
-   - `config.example/index.csv` → `index.csv` (can start empty, header only)
-   - `templates/workflows/*.yml` → `.github/workflows/`
-3. In the data repo: **Settings → Actions → General → Workflow permissions → Read and write**.
-4. Run the `radar` workflow once from the Actions tab, then `discover` to build the market index.
+Ashby, Greenhouse, Lever, Workable, Breezy, Recruitee, Personio, SmartRecruiters, BambooHR, Teamtailor, Trakstar, Rippling. Portfolio boards: Getro, Consider. Anything else: the careers page is read for job links and watched for changes.
 
-Finding a company's board: open its careers page and look at where the job links go (`jobs.ashbyhq.com/<slug>`, `boards.greenhouse.io/<slug>`, `jobs.lever.co/<slug>`, `apply.workable.com/<slug>`, `<slug>.breezy.hr`, `<slug>.recruitee.com`, `<slug>.jobs.personio.de`, `jobs.smartrecruiters.com/<slug>`). Leave `ats`/`slug` empty and set `careers_url` if it's none of those: the weekly audit will spot a supported board if the page links to one.
+## Repo layout
 
-## Files in your data repo
+| Path | What |
+|---|---|
+| `sources/boards.py` | one adapter per job-board platform, plus board detection on careers pages |
+| `sources/pages.py` | own-site careers pages: job links, change detection |
+| `sources/portfolio.py` | VC portfolio boards (Getro, Consider): companies and jobs |
+| `sources/news.py` | funding / expansion news from RSS |
+| `radar/companies.py` | weekly company search → `pool/` |
+| `radar/discover.py` | Common Crawl harvest and hidden-board finder → `index.csv` |
+| `radar/scan.py` | opportunity search → `scan/`, `state/` |
+| `radar/filters.py` | your settings applied to postings |
+| `radar/report.py`, `radar/html.py` | the report (markdown, JSON, page) |
+| `agent/SNOOPY.md` | the agent's instructions |
+| `agent/ONBOARDING.md` | how an assistant sets a new person up |
+| `agent/VAULT.md` | optional: writing results into a notes app |
+| `agent/templates/` | config, profile, rules and scheduled-task prompt templates |
+| `config.example/` | example `settings.yaml`, `wishlist.csv`, `index.csv` |
+| `templates/workflows/` | the two GitHub workflows for your data repo |
+
+## Your data repo
 
 | File | Written by | |
 |---|---|---|
-| `settings.yaml`, `watchlist.csv` | you | filters and target companies |
-| `index.csv` | discovery (and you) | market-search boards; prefix a name with `#` to disable it |
-| `inbox/add.csv` | you / an agent | `ats,slug,Company Name` lines to probe and add on the next discovery run |
-| `judged.json` | reviewer | `{id: {"fit": "keep"/"stretch"/"cut", "note": "..."}}` |
-| `report/report.md` | radar | the report |
-| `output/pending.json` | radar | new matches waiting for review, with job descriptions |
-| `output/watchlist.json`, `matches.json`, `health.json`, `board_audit.json` | radar | details behind the report |
-| `state/` | radar | what's been seen, page snapshots |
+| `settings.yaml` | you | roles, locations, work modes, hard drops, company-search sources |
+| `wishlist.csv` | you, Snoopy | companies always checked: `name,kind,ats,slug,careers_url,source,note` |
+| `index.csv` | company search | the wider market pool (boards from discovery and portfolio links); `#name` disables a row |
+| `inbox/add.csv` | you | `ats,slug,Company` lines to add on the next company search |
+| `profile/brief.md`, `profile/rules.md` | you | who you are; how to judge |
+| `agent/config.yaml` | you | where things are (repos, artifact, schedule, optional vault) |
+| `pool/` | company search | `companies.json` (the unified pool), `portfolio.json`, `portfolio_jobs.json`, `news.json`, `new_this_week.json` |
+| `scan/` | opportunity search, Snoopy | `review_queue.json`, `pending.json`, `watchlist.json`, `health.json`, `snoopy_log.md` |
+| `judged.json`, `extra_roles.json` | Snoopy | verdicts; roles found outside the feeds |
+| `report/` | both | `report.md`, `report.json`, `index.html` |
+| `state/` | opportunity search | what has been seen, page snapshots |
 
 ## Running locally
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
 python -m pytest -q
-python -m radar.run --data ../my-job-radar-data --dry-run      # fetch and print, write nothing
-python -m radar.run --data ../my-job-radar-data --only "Encord"
-python -m radar.report --data ../my-job-radar-data              # rebuild the report after reviewing
+python -m radar.companies --data ../my-data --skip-discovery
+python -m radar.scan --data ../my-data --dry-run
+python -m radar.report --data ../my-data
 ```
 
-Be polite: the default schedule fetches each board six times a day, a load comparable to a person checking the careers page.
+Be polite to the sites you read: the default schedule reads each board six times a day, about what a person checking a careers page would do.

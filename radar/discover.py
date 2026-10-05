@@ -26,7 +26,7 @@ from urllib.parse import unquote, urlparse, parse_qs
 import requests
 import yaml
 
-from radar import ats
+from sources import boards as ats
 from radar.filters import Filters
 
 CC = "https://index.commoncrawl.org"
@@ -141,10 +141,10 @@ def probe(a: str, s: str, flt: Filters, min_remote: int, keep_empty: bool = Fals
     return {"jobs": len(posts), "matches": len(matches), "remote": len(remote_ok), "local": len(local)}
 
 
-def fill_watchlist(data: Path, workers: int = 16) -> int:
+def fill_wishlist(data: Path, workers: int = 16) -> int:
     """Watchlist rows with no ats/slug: try name variants on every supported platform; fill the first
-    plausible board that answers with at least one posting. Writes watchlist.csv in place."""
-    path = data / "watchlist.csv"
+    plausible board that answers with at least one posting. Writes wishlist.csv in place."""
+    path = data / "wishlist.csv"
     with path.open(newline="") as f:
         rows = list(csv.DictReader(f))
     fields = list(rows[0].keys()) if rows else []
@@ -213,7 +213,7 @@ def main(argv=None):
     ap.add_argument("--workers", type=int, default=16)
     ap.add_argument("--source", default="discover")
     ap.add_argument("--keep-empty", action="store_true", help="add boards that exist but have no postings (Scout)")
-    ap.add_argument("--fill-watchlist", action="store_true",
+    ap.add_argument("--fill-wishlist", action="store_true",
                     help="find hidden job boards for watchlist companies without one (tries name variants on every platform)")
     args = ap.parse_args(argv)
 
@@ -221,7 +221,7 @@ def main(argv=None):
     flt = Filters(yaml.safe_load((data / "settings.yaml").read_text()))
     # every row in either list counts as known, including ones disabled with a leading "#"
     existing = set()
-    for fname in ("index.csv", "watchlist.csv"):
+    for fname in ("index.csv", "wishlist.csv"):
         if (data / fname).exists():
             with (data / fname).open(newline="") as f:
                 existing |= {((r.get("ats") or "").strip().lower(), (r.get("slug") or "").strip().lower())
@@ -232,8 +232,8 @@ def main(argv=None):
     stale = (date.today() - timedelta(days=60)).isoformat()
     rejected = {k: d for k, d in rejected.items() if d >= stale}
 
-    if args.fill_watchlist:
-        return fill_watchlist(data, args.workers)
+    if args.fill_wishlist:
+        return fill_wishlist(data, args.workers)
 
     cands: dict[tuple, str] = {}
     if args.commoncrawl:

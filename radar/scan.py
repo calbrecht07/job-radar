@@ -1,21 +1,21 @@
 """Job Radar run: check every company, keep postings that pass settings.yaml, write the report.
 
-Usage:  python -m radar.run --data PATH_TO_YOUR_DATA_REPO [--audit] [--only "A,B"] [--dry-run]
+Usage:  python -m radar.scan --data PATH_TO_YOUR_DATA_REPO [--audit] [--only "A,B"] [--dry-run]
 
 Data directory layout (your private repo):
   settings.yaml          filters (see config.example/settings.yaml)
-  watchlist.csv          Layer 1: companies you always want checked
+  wishlist.csv          Layer 1: companies you always want checked
                          name,kind,ats,slug,careers_url,source,note
   index.csv              Layer 2: the market index (grown by discovery)
                          name,kind,ats,slug,added,source
   judged.json            optional reviewer verdicts {id: {fit, note, ...}} (written by the reviewer)
 Written:
-  output/pending.json    new candidates (both layers), kept pending_days
-  output/review_queue.json  every open role without a verdict in judged.json, with its description
-  output/watchlist.json  every watchlist company's current matching roles / page status
-  output/health.json     run stats, failing boards
-  output/board_audit.json  (--audit) job boards found on watchlist careers pages
-  output/runs.log
+  scan/pending.json    new candidates (both layers), kept pending_days
+  scan/review_queue.json  every open role without a verdict in judged.json, with its description
+  scan/watchlist.json  every watchlist company's current matching roles / page status
+  scan/health.json     run stats, failing boards
+  scan/board_audit.json  (--audit) job boards found on watchlist careers pages
+  scan/runs.log
   report/report.md, report/report.json
   state/seen.json, state/companies.json, state/pages.json
 """
@@ -26,6 +26,7 @@ import csv
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -34,7 +35,8 @@ from pathlib import Path
 
 import yaml
 
-from radar import ats, pages, report
+from sources import boards as ats, pages
+from radar import report
 from radar.filters import Filters, Verdict
 
 NOW = datetime.now(timezone.utc)
@@ -113,6 +115,13 @@ def build_targets(watch: list[dict], index: list[dict], pstate: dict) -> list[di
             seen.add((a, s.lower()))
             targets.append({**r, "ats": a, "slug": s, "layer": "market"})
     return targets
+
+
+def _epoch_iso(v):
+    """Portfolio boards give epoch seconds; feeds give ISO strings. Normalise to ISO."""
+    if isinstance(v, (int, float)):
+        return datetime.fromtimestamp(v, tz=timezone.utc).isoformat()
+    return v
 
 
 def _host(url: str) -> str:
@@ -195,7 +204,7 @@ def main(argv=None):
     mk_age = int(fresh.get("market_max_age_days") or 0)
     mk_cutoff = (NOW - timedelta(days=mk_age)).isoformat() if mk_age else None
 
-    watch = read_csv(data / "watchlist.csv")
+    watch = read_csv(data / "wishlist.csv")
     index = read_csv(data / "index.csv")
     if args.only:
         want = {n.strip().lower() for n in args.only.split(",")}
@@ -205,7 +214,7 @@ def main(argv=None):
     seen: dict = load_json(data / "state/seen.json", {})
     cstate: dict = load_json(data / "state/companies.json", {})
     pstate: dict = load_json(data / "state/pages.json", {})
-    pending: list = load_json(data / "output/pending.json", [])
+    pending: list = load_json(data / "scan/pending.json", [])
     targets = build_targets(watch, index, pstate)
 
     stats = {"run_at": NOW.isoformat(timespec="minutes"), "watchlist": len(watch), "boards": len(targets),
@@ -281,6 +290,35 @@ def main(argv=None):
             new_cands.append(candidate(c, p, v, key, max_desc))
             stats["new_candidates"][c["layer"]] += 1
     stats["feed_seconds"] = round(time.time() - t0, 1)
+
+    # ---- own-site jobs seen on VC portfolio boards (pool/portfolio_jobs.json): companies whose
+    # postings live on their own website, so no feed covers them. Judged like any posting.
+    wl_keys = {re.sub(r"[^a-z0-9]", "", w["name"].lower()) for w in watch}
+    for j in load_json(data / "pool/portfolio_jobs.json", []):
+        if not j.get("url") or not j.get("title"):
+            continue
+        key = j["url"]
+        current_keys.add(key)
+        is_new = key not in seen
+        ck = "portfolio:" + (j.get("company_slug") or j.get("company") or "")
+        if is_new:
+            seen[key] = [TODAY, ck]
+            stats["new_postings"] += 1
+        if not is_new:
+            continue
+        comp_key = re.sub(r"[^a-z0-9]", "", (j.get("company") or "").lower())
+        c = {"name": j.get("company") or "", "kind": "startup", "layer": "watchlist" if comp_key in wl_keys else "market",
+             "ats": "portfolio", "slug": j.get("company_slug") or "", "source": "portfolio"}
+        v = flt.evaluate(j, c)
+        if not v.keep:
+            drop(v.reason)
+            continue
+        if mk_cutoff and too_old(_epoch_iso(j.get("published")), mk_cutoff):
+            drop("market_too_old")
+            continue
+        v.flags = v.flags + [f"via {j.get('vc', 'VC')} portfolio board"]
+        new_cands.append(candidate(c, {**j, "published": _epoch_iso(j.get("published"))}, v, key, max_desc))
+        stats["new_candidates"][c["layer"]] += 1
 
     # ---- careers pages (watchlist companies without a supported board; all of them with --audit)
     page_rows = [w for w in watch if w.get("careers_url") and
@@ -366,14 +404,14 @@ def main(argv=None):
     save_json(data / "state/seen.json", seen, indent=0)
     save_json(data / "state/companies.json", cstate)
     save_json(data / "state/pages.json", pstate)
-    save_json(data / "output/pending.json", pending)
+    save_json(data / "scan/pending.json", pending)
     # archive of every candidate (no descriptions) for the report, 60 days
     arch_after = (NOW - timedelta(days=60)).isoformat()
     matches = [{k: v for k, v in c.items() if k != "description"} for c in new_cands]
-    matches += [m for m in load_json(data / "output/matches.json", []) if m.get("found", "") >= arch_after]
-    save_json(data / "output/matches.json", matches)
-    save_json(data / "output/health.json", stats)
-    save_json(data / "output/watchlist.json", {"updated": stats["run_at"], "companies": wl_status})
+    matches += [m for m in load_json(data / "scan/matches.json", []) if m.get("found", "") >= arch_after]
+    save_json(data / "scan/matches.json", matches)
+    save_json(data / "scan/health.json", stats)
+    save_json(data / "scan/watchlist.json", {"updated": stats["run_at"], "companies": wl_status})
     # review queue: every open role without a verdict yet (watchlist roles + new market matches)
     judged = load_json(data / "judged.json", {})
     queue, qids = [], set()
@@ -383,12 +421,12 @@ def main(argv=None):
             queue.append(c)
     queue.sort(key=lambda x: (x["layer"] != "watchlist", x["kind"] != "vc", x["company"].lower()))
     stats["descriptions_fetched"] = fill_descriptions(queue, limit=150, workers=args.workers)
-    save_json(data / "output/review_queue.json", queue)
+    save_json(data / "scan/review_queue.json", queue)
     stats["review_queue"] = len(queue)
-    save_json(data / "output/health.json", stats)
+    save_json(data / "scan/health.json", stats)
     if args.audit:
-        save_json(data / "output/board_audit.json", {"updated": stats["run_at"], "mismatches": audit})
-    log = data / "output/runs.log"
+        save_json(data / "scan/board_audit.json", {"updated": stats["run_at"], "mismatches": audit})
+    log = data / "scan/runs.log"
     lines = log.read_text().splitlines() if log.exists() else []
     lines.append(f"{stats['run_at']} watchlist={len(watch)} boards={len(targets)} ok={stats['ok']} "
                  f"failed={len(stats['failed'])} not_found={len(stats['not_found'])} postings={stats['postings']} "

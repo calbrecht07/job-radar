@@ -44,10 +44,10 @@ def build(data: Path, cfg: dict | None = None) -> dict:
     now = datetime.now(timezone.utc)
     since = (now - timedelta(days=days)).isoformat()
 
-    wl = _load(data / "output/watchlist.json", {}).get("companies", {})
-    health = _load(data / "output/health.json", {})
-    audit = _load(data / "output/board_audit.json", {}).get("mismatches", [])
-    matches = _load(data / "output/matches.json", [])
+    wl = _load(data / "scan/watchlist.json", {}).get("companies", {})
+    health = _load(data / "scan/health.json", {})
+    audit = _load(data / "scan/board_audit.json", {}).get("mismatches", [])
+    matches = _load(data / "scan/matches.json", [])
     judged = _load(data / "judged.json", {})
 
     def verdict(rid):

@@ -4,7 +4,8 @@ import shutil
 from pathlib import Path
 from unittest import mock
 
-from radar import ats, pages, run
+from sources import boards as ats, pages
+from radar import scan as run
 
 EX = Path(__file__).parent.parent / "config.example"
 
@@ -32,13 +33,13 @@ def fake_fetch(a, s):
 PAGE1 = "<html><body>" + "".join(f"<p>Line {i}</p>" for i in range(30)) + \
         '<a href="/careers/chief-of-staff-london">Chief of Staff, London</a><a href="/careers/">View all jobs</a>' + \
         '<a href="/careers/backend-engineer">Senior Backend Engineer</a>' + \
-        '<a href="https://pageco.teamtailor.com/jobs">Jobs</a></body></html>'
+        '<a href="https://pageco.pinpointhq.com/en/postings">Jobs</a></body></html>'
 PAGE2 = PAGE1.replace("Line 3<", "Head of Partnerships<")
 
 
 def make_data(tmp: Path):
     shutil.copy(EX / "settings.yaml", tmp / "settings.yaml")
-    (tmp / "watchlist.csv").write_text(
+    (tmp / "wishlist.csv").write_text(
         "name,kind,ats,slug,careers_url,source,note\n"
         "Acme,startup,ashby,acme,,,\n"
         "PageCo,startup,,,https://pageco.example/careers,,\n")
@@ -58,14 +59,14 @@ def test_two_runs(tmp_path):
     with mock.patch.object(ats, "fetch", fake_fetch), \
          mock.patch.object(pages.requests, "get", lambda *a, **k: R()):
         assert run.main(["--data", str(tmp_path)]) == 0
-        pend = json.loads((tmp_path / "output/pending.json").read_text())
+        pend = json.loads((tmp_path / "scan/pending.json").read_text())
         titles = {(c["layer"], c["title"]) for c in pend}
         assert titles == {("watchlist", "Chief of Staff"), ("market", "Solutions Engineer"),
                           ("watchlist", "Chief of Staff, London")}
-        wl = json.loads((tmp_path / "output/watchlist.json").read_text())["companies"]
+        wl = json.loads((tmp_path / "scan/watchlist.json").read_text())["companies"]
         assert wl["Acme"]["roles"][0]["title"] == "Chief of Staff"
         assert wl["PageCo"]["page_status"] == "first_check"
-        q = json.loads((tmp_path / "output/review_queue.json").read_text())
+        q = json.loads((tmp_path / "scan/review_queue.json").read_text())
         assert {c["title"] for c in q} == {"Chief of Staff", "Solutions Engineer", "Chief of Staff, London"}
         assert wl["PageCo"]["roles"][0]["url"] == "https://pageco.example/careers/chief-of-staff-london"
         rep = (tmp_path / "report/report.md").read_text()
@@ -74,13 +75,13 @@ def test_two_runs(tmp_path):
         # second run: nothing new; page changed
         html["v"] = PAGE2
         assert run.main(["--data", str(tmp_path), "--audit"]) == 0
-        h = json.loads((tmp_path / "output/health.json").read_text())
+        h = json.loads((tmp_path / "scan/health.json").read_text())
         assert h["new_postings"] == 0 and h["pages_changed"] == 1
-        wl = json.loads((tmp_path / "output/watchlist.json").read_text())["companies"]
+        wl = json.loads((tmp_path / "scan/watchlist.json").read_text())["companies"]
         assert "Head of Partnerships" in wl["PageCo"]["page_added"]
         assert wl["Acme"]["roles"], "watchlist keeps showing current open roles"
-        audit = json.loads((tmp_path / "output/board_audit.json").read_text())["mismatches"]
-        assert audit[0]["found_on_page"] == ["teamtailor:pageco"]
+        audit = json.loads((tmp_path / "scan/board_audit.json").read_text())["mismatches"]
+        assert audit[0]["found_on_page"] == ["pinpoint:pageco"]
 
     # reviewer cuts the market role -> hidden from the report
     pend_id = [c["id"] for c in pend if c["layer"] == "market"][0]

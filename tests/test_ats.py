@@ -1,7 +1,7 @@
 """Adapter parsing tests with recorded-shape fixtures (no network)."""
 from unittest import mock
 
-from radar import ats
+from sources import boards as ats
 
 
 def fake_get(payloads):
@@ -111,3 +111,29 @@ def test_bamboohr():
     with mock.patch.object(ats, "_get", fake_get({"bamboohr.com": data})):
         out = ats.fetch("bamboohr", "illuminatefinancial")
     assert out[0]["url"] == "https://illuminatefinancial.bamboohr.com/careers/51" and out[0]["locations"] == ["London"]
+
+
+def test_teamtailor():
+    rss = """<?xml version="1.0"?><rss version="2.0" xmlns:tt="https://teamtailor.com/locations"><channel>
+    <item><title>Forward Deployed Engineer</title><link>https://x.teamtailor.com/jobs/1-fde</link><guid>1</guid>
+    <description>&lt;p&gt;Hi&lt;/p&gt;</description><tt:location>London</tt:location><tt:department>Ops</tt:department>
+    <tt:remote>false</tt:remote><pubDate>Mon, 01 Oct 2026 10:00:00 +0000</pubDate></item></channel></rss>"""
+    with mock.patch.object(ats, "_get_text", lambda url, params=None: rss):
+        out = ats.fetch("teamtailor", "x")
+    assert out[0]["locations"] == ["London"] and out[0]["description"] == "Hi" and out[0]["department"] == "Ops"
+
+
+def test_trakstar():
+    data = {"meta": {"total": 1}, "objects": [{"id": "fk1", "title": "Associate", "location": {"city": "Berlin", "country": "Germany"},
+                                              "hosted_url": "https://dn.hire.trakstar.com/jobs/fk1/", "description": "<p>x</p>"}]}
+    with mock.patch.object(ats, "_get", fake_get({"recruiterbox": data})):
+        out = ats.fetch("trakstar", "dn")
+    assert out[0]["locations"] == ["Berlin, Germany"] and out[0]["url"].endswith("/fk1/")
+
+
+def test_rippling():
+    data = [{"uuid": "u1", "name": "Chief of Staff", "locations": [{"city": "London", "country": "UK"}], "workLocationType": "HYBRID",
+             "url": "https://ats.rippling.com/x/jobs/u1", "description": "<p>d</p>"}]
+    with mock.patch.object(ats, "_get", fake_get({"rippling": data})):
+        out = ats.fetch("rippling", "x")
+    assert out[0]["workplace"] == "hybrid" and out[0]["locations"] == ["London, UK"]

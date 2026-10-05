@@ -1,4 +1,4 @@
-# Job Radar settings.
+# Job Radar settings (read by every run and by Snoopy, the agent).
 # Every check reads this file. All patterns are case-insensitive regular
 # expressions; plain words work fine ("london", "chief of staff").
 # Keep the filters inclusive: they only build a shortlist. A reviewer
@@ -136,3 +136,26 @@ output:
   pending_days: 10              # how long unreviewed candidates stay in the queue
   max_description_chars: 7000   # job description length passed to the reviewer
   report_market_days: 7         # market section of the report shows the last N days
+
+# --------------------------------------------------------- company search
+# Weekly: where new companies come from. Snoopy reviews pool/new_this_week.json on Mondays
+# and promotes the good ones to wishlist.csv.
+company_search:
+  # Companies and news must mention one of these to count as "in your region".
+  region_terms: [london, "united kingdom", "\\buk\\b", england]
+  # VC portfolio job boards (Getro or Consider platforms). Their portfolio companies and jobs
+  # join the pool automatically; jobs on companies' own websites are judged too.
+  portfolio_boards:
+    - {vc: Seedcamp, url: https://talent.seedcamp.com}
+    - {vc: Balderton, url: https://careers.balderton.com}
+    - {vc: Atomico, url: https://careers.atomico.com}
+    - {vc: Dawn Capital, url: https://jobs.dawncapital.com}
+  # Funding / expansion news feeds (RSS). Items from the last `news_days` that mention a raise,
+  # a launch or a new office in your region are kept for Snoopy to judge.
+  news_feeds:
+    - https://www.uktech.news/feed
+    - https://sifted.eu/feed
+    - https://techcrunch.com/category/venture/feed/
+    - https://www.eu-startups.com/feed
+    - https://tech.eu/feed/
+  news_days: 8

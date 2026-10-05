@@ -14,6 +14,10 @@ on:
       max_probe:
         description: "Max new company boards to probe"
         default: "4000"
+      fill_watchlist_only:
+        description: "Only look for hidden job boards of watchlist companies (fast)"
+        type: boolean
+        default: false
 
 concurrency:
   group: radar-discover
@@ -36,6 +40,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -q -r .engine/requirements.txt
+      - name: Find hidden boards for watchlist companies
+        run: PYTHONPATH=.engine python -m radar.discover --data . --fill-watchlist 2>&1 | tee -a output/discover.log
       - name: Probe boards from inbox/add.csv
         if: hashFiles('inbox/add.csv') != ''
         run: |
@@ -43,6 +49,7 @@ jobs:
           PYTHONPATH=.engine python -m radar.discover --data . --slugs inbox/add.csv --keep-empty --source added 2>&1 | tee -a output/discover.log
           git rm -q inbox/add.csv
       - name: Harvest Common Crawl and probe
+        if: github.event.inputs.fill_watchlist_only != 'true'
         run: |
           echo "== $(date -u +%FT%RZ)" >> output/discover.log
           PYTHONPATH=.engine python -m radar.discover --data . --commoncrawl \
@@ -51,7 +58,7 @@ jobs:
         run: |
           git config user.name "job-radar-bot"
           git config user.email "job-radar-bot@users.noreply.github.com"
-          git add -A index.csv state inbox output/discover.log
+          git add -A index.csv watchlist.csv state inbox output/discover.log
           git diff --cached --quiet && exit 0
           git commit -q -m "discover: index now $(($(wc -l < index.csv) - 1)) boards"
           for i in 1 2 3; do git pull -q --rebase && git push -q && exit 0; sleep 5; done

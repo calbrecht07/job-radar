@@ -116,7 +116,9 @@ def commoncrawl_slugs(max_pages: int, collections: int = 2, seed: int = 0) -> se
 def name_variants(name: str) -> list[str]:
     base = re.sub(r"\(.*?\)", "", name).strip().lower()
     words = re.findall(r"[a-z0-9]+", base)
-    v = {"".join(words), "-".join(words), words[0] if words else ""}
+    v = {"".join(words), "-".join(words), words[0] if words else "", "_".join(words)}
+    if len(words) > 1:
+        v.add("".join(words[:2]))
     for suffix in ("ai", "hq", "inc", "labs", "careers", "jobs"):
         v.add("".join(words) + suffix)
         v.add("-".join(words) + "-" + suffix)
@@ -139,6 +141,48 @@ def probe(a: str, s: str, flt: Filters, min_remote: int, keep_empty: bool = Fals
     return {"jobs": len(posts), "matches": len(matches), "remote": len(remote_ok), "local": len(local)}
 
 
+def fill_watchlist(data: Path, workers: int = 16) -> int:
+    """Watchlist rows with no ats/slug: try name variants on every supported platform; fill the first
+    plausible board that answers with at least one posting. Writes watchlist.csv in place."""
+    path = data / "watchlist.csv"
+    with path.open(newline="") as f:
+        rows = list(csv.DictReader(f))
+    fields = list(rows[0].keys()) if rows else []
+    todo = [r for r in rows if not r.get("ats") and not r["name"].startswith("#")]
+    platforms = [a for a in ats.ADAPTERS if not a.endswith("-eu")]
+
+    def try_company(r):
+        url = r.get("careers_url", "")
+        for v in name_variants(r["name"]):
+            for a in platforms:
+                if not ats.plausible(r["name"], v, url):
+                    continue
+                try:
+                    posts = ats.fetch(a, v)
+                except Exception:
+                    continue
+                if posts:
+                    return r, a, v, len(posts)
+        return r, None, None, 0
+
+    found = 0
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for r, a, v, n in ex.map(try_company, todo):
+            if a:
+                r["ats"], r["slug"] = a, v
+                r["note"] = (r.get("note") or "") + f" board found by name probe ({n} postings)"
+                found += 1
+                print(f"  + {r['name']}: {a}/{v} ({n} postings)", file=sys.stderr)
+            else:
+                print(f"  - {r['name']}: no board on supported platforms", file=sys.stderr)
+    with path.open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields, lineterminator="\n")
+        w.writeheader()
+        w.writerows(rows)
+    print(json.dumps({"checked": len(todo), "found": found}))
+    return 0
+
+
 def pretty(slug: str) -> str:
     s = re.sub(r"[-_.]+", " ", slug).strip()
     return s.title() if s.islower() else s
@@ -156,6 +200,8 @@ def main(argv=None):
     ap.add_argument("--workers", type=int, default=16)
     ap.add_argument("--source", default="discover")
     ap.add_argument("--keep-empty", action="store_true", help="add boards that exist but have no postings (Scout)")
+    ap.add_argument("--fill-watchlist", action="store_true",
+                    help="find hidden job boards for watchlist companies without one (tries name variants on every platform)")
     args = ap.parse_args(argv)
 
     data = Path(args.data).resolve()
@@ -172,6 +218,9 @@ def main(argv=None):
     rejected = json.loads(rejected_path.read_text()) if rejected_path.exists() else {}
     stale = (date.today() - timedelta(days=60)).isoformat()
     rejected = {k: d for k, d in rejected.items() if d >= stale}
+
+    if args.fill_watchlist:
+        return fill_watchlist(data, args.workers)
 
     cands: dict[tuple, str] = {}
     if args.commoncrawl:

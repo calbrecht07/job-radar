@@ -17,7 +17,33 @@ import requests
 
 from radar import ats
 
-UA = {"User-Agent": "Mozilla/5.0 (compatible; job-radar/1.0; personal job search tool)"}
+UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
+                     "Chrome/128.0 Safari/537.36 job-radar/1.0",
+      "Accept": "text/html,application/xhtml+xml", "Accept-Language": "en-GB,en;q=0.9"}
+
+_A = re.compile(r"<a\b[^>]*?href=[\"']([^\"'#]+)[\"'][^>]*>(.*?)</a>", re.S | re.I)
+_JOBLIKE = re.compile(r"/(jobs?|careers?|positions?|vacanc|openings?|roles?|opportunit|join-us|o|p|j)/[^/?#]+|gh_jid=|lever\.co/|ashbyhq\.com/|"
+                      r"workable\.com/|teamtailor\.com/jobs/|breezy\.hr/p/|recruitee\.com/o/|personio\.\w+/job/|bamboohr\.com/careers/\d|"
+                      r"hire\.trakstar\.com/jobs/|pinpointhq\.com/|rippling\.com/[^/]+/jobs/|charliehr\.com/", re.I)
+_NAV = re.compile(r"^(jobs?|careers?|apply( now)?|view( all)?( jobs| roles| openings)?|see (all|more)|open (roles|positions)|"
+                  r"learn more|read more|join us|here|more|back|next|previous|home|about|blog|contact|privacy|terms|"
+                  r"cookie.*|log ?in|sign ?up|linkedin|twitter|x|instagram|github|all jobs|current openings)$", re.I)
+
+
+def job_links(raw_html: str, base_url: str) -> list[dict]:
+    """Links on a careers page that look like individual job postings: [{title, url}]."""
+    from urllib.parse import urljoin
+    out, seen = [], set()
+    for href, inner in _A.findall(raw_html or ""):
+        text = re.sub(r"\s+", " ", htmlmod.unescape(_TAG.sub(" ", inner))).strip()
+        url = urljoin(base_url, htmlmod.unescape(href.strip()))
+        if not url.startswith("http") or url.rstrip("/") == base_url.rstrip("/") or url in seen:
+            continue
+        if not (6 <= len(text) <= 140) or _NAV.match(text) or not _JOBLIKE.search(url):
+            continue
+        seen.add(url)
+        out.append({"title": text, "url": url})
+    return out[:200]
 
 _DROP = re.compile(r"<(script|style|noscript|svg|head)[^>]*>.*?</\1>", re.S | re.I)
 _BLOCK = re.compile(r"<(br|/p|/li|/h\d|/div|/a|/tr|/td|/section|/article|/span)[^>]*>", re.I)
@@ -53,6 +79,7 @@ def check_page(url: str, prev: dict | None) -> dict:
         return {**out, "status": "error", "error": type(e).__name__, "lines_hash": prev.get("lines_hash")}
 
     lines = page_text(raw)
+    out["jobs"] = job_links(raw, getattr(r, "url", None) or url)
     out["boards"] = [f"{a}:{s}" for a, s in ats.detect_boards(raw)]
     h = hashlib.sha1("\n".join(lines).encode()).hexdigest()[:16]
     out["lines_hash"] = h

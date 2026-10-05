@@ -30,6 +30,8 @@ def fake_fetch(a, s):
 
 
 PAGE1 = "<html><body>" + "".join(f"<p>Line {i}</p>" for i in range(30)) + \
+        '<a href="/careers/chief-of-staff-london">Chief of Staff, London</a><a href="/careers/">View all jobs</a>' + \
+        '<a href="/careers/backend-engineer">Senior Backend Engineer</a>' + \
         '<a href="https://pageco.teamtailor.com/jobs">Jobs</a></body></html>'
 PAGE2 = PAGE1.replace("Line 3<", "Head of Partnerships<")
 
@@ -58,12 +60,14 @@ def test_two_runs(tmp_path):
         assert run.main(["--data", str(tmp_path)]) == 0
         pend = json.loads((tmp_path / "output/pending.json").read_text())
         titles = {(c["layer"], c["title"]) for c in pend}
-        assert titles == {("watchlist", "Chief of Staff"), ("market", "Solutions Engineer")}
+        assert titles == {("watchlist", "Chief of Staff"), ("market", "Solutions Engineer"),
+                          ("watchlist", "Chief of Staff, London")}
         wl = json.loads((tmp_path / "output/watchlist.json").read_text())["companies"]
         assert wl["Acme"]["roles"][0]["title"] == "Chief of Staff"
         assert wl["PageCo"]["page_status"] == "first_check"
         q = json.loads((tmp_path / "output/review_queue.json").read_text())
-        assert {c["title"] for c in q} == {"Chief of Staff", "Solutions Engineer"}
+        assert {c["title"] for c in q} == {"Chief of Staff", "Solutions Engineer", "Chief of Staff, London"}
+        assert wl["PageCo"]["roles"][0]["url"] == "https://pageco.example/careers/chief-of-staff-london"
         rep = (tmp_path / "report/report.md").read_text()
         assert "[Chief of Staff](https://jobs.ashbyhq.com/acme/1)" in rep and "Solutions Engineer" in rep
 

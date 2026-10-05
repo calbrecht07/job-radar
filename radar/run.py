@@ -35,7 +35,7 @@ from pathlib import Path
 import yaml
 
 from radar import ats, pages, report
-from radar.filters import Filters
+from radar.filters import Filters, Verdict
 
 NOW = datetime.now(timezone.utc)
 TODAY = NOW.date().isoformat()
@@ -262,11 +262,34 @@ def main(argv=None):
     audit = []
     for w, res in checked:
         pstate[w["name"]] = res
+        # job links found on an own-site careers page: treated like postings (title filter only;
+        # location isn't known from a link, so the reviewer checks it)
+        if w["name"] not in {t["name"] for t in targets if t["layer"] == "watchlist"}:
+            c = {**w, "layer": "watchlist", "ats": "page", "slug": w["name"], "kind": w.get("kind") or "startup"}
+            for j in res.get("jobs") or []:
+                key = j["url"]
+                current_keys.add(key)
+                is_new = key not in seen
+                if is_new:
+                    seen[key] = [TODAY, "page:" + w["name"]]
+                    stats["new_postings"] += 1
+                if not flt.title_ok(j["title"], c["kind"]):
+                    continue
+                p = {"id": key, "title": j["title"], "locations": [], "url": key, "description": ""}
+                v = Verdict(True, pool="local", flags=["from careers page: location and details not in feed, open the link"])
+                wl_full[cand_id(key)] = candidate(c, p, v, key, max_desc)
+                res.setdefault("matching", []).append({"id": cand_id(key), "title": j["title"], "url": key,
+                                                       "pool": "local", "locations": [], "workplace": "",
+                                                       "first_seen": seen[key][0], "flags": v.flags})
+                if is_new:
+                    new_cands.append(candidate(c, p, v, key, max_desc))
+                    stats["new_candidates"]["watchlist"] += 1
         configured = f"{w.get('ats', '').lower()}:{w.get('slug', '')}" if w.get("ats") else ""
         if w["name"] not in wl_status:          # page-only company
             wl_status[w["name"]] = {"kind": w.get("kind") or "startup", "board": "", "careers_url": w["careers_url"],
                                     "page_status": res.get("status"), "page_added": res.get("added", []),
-                                    "page_error": res.get("error"), "roles": []}
+                                    "page_error": res.get("error"), "page_jobs": len(res.get("jobs") or []),
+                                    "roles": res.get("matching", [])}
         boards = [b for b in res.get("boards") or [] if ats.plausible(w["name"], b.split(":", 1)[1], w["careers_url"])]
         if boards and configured not in boards:
             audit.append({"company": w["name"], "configured": configured or None, "found_on_page": boards,

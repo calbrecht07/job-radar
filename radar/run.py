@@ -115,6 +115,34 @@ def build_targets(watch: list[dict], index: list[dict], pstate: dict) -> list[di
     return targets
 
 
+def _host(url: str) -> str:
+    from urllib.parse import urlparse
+    h = urlparse(url or "").netloc.lower()
+    h = h[4:] if h.startswith("www.") else h
+    parts = h.split(".")
+    return ".".join(parts[-3:]) if len(parts) > 2 and parts[-2] in ("co", "com", "org", "ac") else ".".join(parts[-2:])
+
+
+def fill_descriptions(cands: list, limit: int, workers: int) -> int:
+    """Fetch job-page text for candidates whose feed had no description (careers-page links,
+    Breezy, SmartRecruiters, BambooHR), so the reviewer never has to open pages itself."""
+    todo = [c for c in cands if not c.get("description") and c.get("url")][:limit]
+
+    def one(c):
+        try:
+            r = pages.requests.get(c["url"], headers=pages.UA, timeout=25)
+            if r.status_code < 400:
+                text = "\n".join(pages.page_text(r.text))
+                c["description"] = text[:7000]
+                c["flags"] = [f for f in c.get("flags", []) if "open the link" not in f] + \
+                             (["description from job page"] if len(text) > 400 else ["job page loads with JavaScript: open the link"])
+        except Exception:
+            pass
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        list(ex.map(one, todo))
+    return len(todo)
+
+
 def fetch_one(c: dict):
     try:
         return c, ats.fetch(c["ats"], c["slug"]), None
@@ -266,7 +294,13 @@ def main(argv=None):
         # location isn't known from a link, so the reviewer checks it)
         if w["name"] not in {t["name"] for t in targets if t["layer"] == "watchlist"}:
             c = {**w, "layer": "watchlist", "ats": "page", "slug": w["name"], "kind": w.get("kind") or "startup"}
+            own_host = _host(w["careers_url"])
             for j in res.get("jobs") or []:
+                h = _host(j["url"])
+                path_bits = [b for b in j["url"].split("/")[3:5] if b]
+                if not (h == own_host or h.endswith("." + own_host) or own_host.endswith("." + h)
+                        or any(ats.plausible(w["name"], b, w["careers_url"]) for b in [h.split(".")[0]] + path_bits)):
+                    continue   # e.g. a VC page linking to portfolio companies' jobs
                 key = j["url"]
                 current_keys.add(key)
                 is_new = key not in seen
@@ -348,6 +382,7 @@ def main(argv=None):
             qids.add(c["id"])
             queue.append(c)
     queue.sort(key=lambda x: (x["layer"] != "watchlist", x["kind"] != "vc", x["company"].lower()))
+    stats["descriptions_fetched"] = fill_descriptions(queue, limit=150, workers=args.workers)
     save_json(data / "output/review_queue.json", queue)
     stats["review_queue"] = len(queue)
     save_json(data / "output/health.json", stats)

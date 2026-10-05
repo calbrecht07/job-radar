@@ -151,17 +151,30 @@ def fill_watchlist(data: Path, workers: int = 16) -> int:
     todo = [r for r in rows if not r.get("ats") and not r["name"].startswith("#")]
     platforms = [a for a in ats.ADAPTERS if not a.endswith("-eu")]
 
+    flt = Filters(yaml.safe_load((data / "settings.yaml").read_text()))
+
+    def full_name_variants(name):
+        base = re.sub(r"\(.*?\)|/.*$", "", name).strip().lower()
+        words = re.findall(r"[a-z0-9]+", base)
+        if not words:
+            return []
+        stems = {"".join(words), "-".join(words)}
+        out = set(stems)
+        for st in stems:
+            out |= {st + suf for suf in ("", "ai", "hq", "-ai", "-hq", "careers", "-careers", "jobs")}
+        return sorted(out)
+
     def try_company(r):
-        url = r.get("careers_url", "")
-        for v in name_variants(r["name"]):
+        # a board only counts if it uses the company's full name AND has UK/London roles
+        # (generic words like "connect" or "frontline" belong to other companies)
+        for v in full_name_variants(r["name"]):
             for a in platforms:
-                if not ats.plausible(r["name"], v, url):
-                    continue
                 try:
                     posts = ats.fetch(a, v)
                 except Exception:
                     continue
-                if posts:
+                uk = [p for p in posts if flt.local_match(p)[0] or (flt.is_remote(p) and flt.remote_region(p)[0])]
+                if uk:
                     return r, a, v, len(posts)
         return r, None, None, 0
 

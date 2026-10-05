@@ -120,7 +120,7 @@ def test_discover_feed_enterprise_and_failures():
     with mock.patch.object(careers.requests, "get", lambda url, **k: R(text=home, url=url)), \
             mock.patch.object(ats, "fetch", lambda a, s: [{"title": "PM", "url": "u", "locations": ["London"]}]):
         p = careers.discover({"name": "Acme", "website": "https://acme.com"})
-    assert p["method"] == "feed" and p["board"] == "workday:acme.wd3/Acme_Ext" and len(p["jobs"]) == 1
+    assert p["method"] == "feed" and p["board"] == "workday:acme.wd3/Acme_Ext" and p["jobs"] == []   # scan reads Workday
     home = '<a href="https://career5.successfactors.eu/career?company=acme">Careers</a>'
     with mock.patch.object(careers.requests, "get", lambda url, **k: R(text=home, url=url)):
         assert careers.discover({"name": "Acme", "website": "acme.com"})["enterprise"] == "successfactors"

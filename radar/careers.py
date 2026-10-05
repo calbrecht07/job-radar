@@ -57,7 +57,7 @@ ENTERPRISE = [
     ("homerun", r"homerun\.co"),
     ("dover", r"app\.dover\.com"),
 ]
-FALLBACK_PATHS = ("/careers", "/jobs", "/careers/", "/join-us", "/about/careers", "/work-with-us", "/vacancies")
+FALLBACK_PATHS = ("/careers", "/jobs", "/join-us")
 
 _CAREER_TXT = re.compile(r"\b(careers?|jobs?|vacanc(y|ies)|join (us|our team|the team)|work (with|for) us|"
                          r"working (at|here|with us)|we'?re hiring|open (roles|positions))\b", re.I)
@@ -72,7 +72,7 @@ _TAG = pages._TAG
 _SOCIAL = re.compile(r"linkedin\.com|facebook\.com|twitter\.com|x\.com/|instagram\.com|youtube\.com|glassdoor|indeed\.", re.I)
 
 
-COMPANY_SECONDS = 45            # whole-discovery budget per company: slow sites must not hold a thread
+COMPANY_SECONDS = 30            # whole-discovery budget per company: slow sites must not hold a thread
 MAX_BYTES = 2_000_000
 _LOCAL = threading.local()
 
@@ -256,8 +256,9 @@ def _discover(company: dict) -> dict:
     for a, s in boards.detect_boards(blob):
         if a in boards.ADAPTERS and boards.plausible(name, s, site):
             prof.update(method="feed", board=f"{a}:{s}")
-            if _LOCAL.deadline and _LOCAL.deadline - time.monotonic() < 5:
-                return prof                        # the board is what matters; the scan reads its jobs
+            # the board is what matters (the scan reads its jobs); Workday feeds run to 30+ requests, so skip
+            if a == "workday" or (_LOCAL.deadline and _LOCAL.deadline - time.monotonic() < 5):
+                return prof
             try:
                 prof["jobs"] = [{"title": p["title"], "url": p["url"], "locations": p.get("locations") or [],
                                  "remote": p.get("remote")} for p in boards.fetch(a, s)]

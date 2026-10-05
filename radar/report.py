@@ -63,13 +63,14 @@ def build(data: Path, cfg: dict | None = None) -> dict:
                 continue
             shown.append({**r, "company": name, "kind": s.get("kind"), "fit": fit, "note": note})
         wl_roles += shown
-    rank = {"keep": 0, "stretch": 1, None: 2}
-    wl_roles.sort(key=lambda r: (r.get("kind") != "vc", rank.get(r.get("fit"), 3), r["company"].lower()))
         if s.get("board") == "" and s.get("page_status"):
             pages_rows.append({"company": name, "status": s["page_status"], "added": s.get("page_added") or [],
                                "error": s.get("page_error"), "url": s.get("careers_url")})
         elif not shown:
             quiet.append({"company": name, "error": s.get("error")})
+
+    rank = {"keep": 0, "stretch": 1, None: 2}
+    wl_roles.sort(key=lambda r: (r.get("kind") != "vc", rank.get(r.get("fit"), 3), r["company"].lower()))
 
     # ---- market (last N days, not on the watchlist)
     mk = []

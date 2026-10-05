@@ -17,6 +17,8 @@ from pathlib import Path
 
 import requests
 
+from sources import boards as ats
+
 UA = {"User-Agent": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/128.0 Safari/537.36 job-radar/1.0"}
 GONE = re.compile(
     r"(job|position|role|posting|opening|vacancy|listing)[^.]{0,40}(no longer (available|accepting|open|active)|"
@@ -35,8 +37,40 @@ def _load(path: Path, default):
         return default
 
 
+_FEED_CACHE: dict = {}
+
+
+def check_via_feed(url: str) -> tuple[bool, str] | None:
+    """If the URL is on a supported job board, ask the board's feed whether the posting is still listed.
+    Returns None when the URL isn't on a supported board."""
+    hit = next(((a, s) for a, s in ats.detect_boards(url) if a in ats.ADAPTERS), None)
+    if not hit:
+        return None
+    a, slug = hit
+    key = f"{a}:{slug.lower()}"
+    if key not in _FEED_CACHE:
+        try:
+            _FEED_CACHE[key] = {p.get("url", "").rstrip("/") for p in ats.fetch(a, slug)} | \
+                               {str(p.get("id")) for p in ats.fetch(a, slug)}
+        except ats.NotFound:
+            _FEED_CACHE[key] = set()
+        except Exception as e:
+            _FEED_CACHE[key] = None
+    feed = _FEED_CACHE[key]
+    if feed is None:
+        return True, "unverified: board feed unavailable"
+    u = url.rstrip("/")
+    last = u.rsplit("/", 1)[-1].split("?")[0]
+    if u in feed or last in feed or any(f.endswith("/" + last) for f in feed if f):
+        return True, "ok (listed in board feed)"
+    return False, "not in the company's job-board feed any more"
+
+
 def check_url(url: str) -> tuple[bool, str]:
     """(live, reason). Conservative: network trouble counts as live (don't hide roles on a hiccup)."""
+    via = check_via_feed(url)
+    if via is not None:
+        return via
     try:
         r = requests.get(url, headers=UA, timeout=25, allow_redirects=True)
     except requests.RequestException as e:
@@ -55,6 +89,8 @@ def check_url(url: str) -> tuple[bool, str]:
         return False, f'page says "{m.group(0)[:60]}"'
     if m and len(text) < 1500:
         return False, "404 page"
+    if len(text) < 400:
+        return True, "unverified: page needs JavaScript"
     return True, "ok"
 
 
@@ -79,7 +115,7 @@ def run(data: Path, workers: int = 12) -> dict:
     # drop roles already judged cut (not shown anyway)
     roles = {k: v for k, v in roles.items() if (judged.get(k) or {}).get("fit") != "cut"}
 
-    closed, to_check = {}, []
+    closed, to_check, unverified = {}, [], {}
     for rid, r in roles.items():
         url = r.get("url") or ""
         if url in live_keys:
@@ -100,8 +136,10 @@ def run(data: Path, workers: int = 12) -> dict:
                 closed[rid] = {"company": r.get("company"), "title": r.get("title"), "url": r.get("url"),
                                "reason": reason, "closed_on": datetime.now(timezone.utc).date().isoformat(),
                                "permanent": reason.startswith("HTTP") or "says" in reason}
+            elif reason.startswith("unverified"):
+                unverified[rid] = reason
     out = {"updated": datetime.now(timezone.utc).isoformat(timespec="minutes"), "checked": len(to_check),
-           "feed_live": len(roles) - len(to_check), "closed": closed}
+           "feed_live": len(roles) - len(to_check), "closed": closed, "unverified": unverified}
     (data / "scan").mkdir(exist_ok=True)
     (data / "scan/closed.json").write_text(json.dumps(out, indent=1, ensure_ascii=False) + "\n")
     # mirror into extra_roles.json so hand-added roles stay closed

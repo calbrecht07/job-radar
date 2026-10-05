@@ -50,11 +50,16 @@ def build(data: Path, cfg: dict | None = None, skip_verify: bool = False) -> dic
     matches = _load(data / "scan/matches.json", [])
     judged = _load(data / "judged.json", {})
     from radar import verify
-    closed = verify.run(data).get("closed", {}) if not skip_verify else {}
+    vres = verify.run(data) if not skip_verify else {}
+    closed = vres.get("closed", {})
+    unverified = vres.get("unverified", {})
 
     def verdict(rid):
         j = judged.get(rid) or {}
-        return j.get("fit"), j.get("note", "")
+        note = j.get("note", "")
+        if rid in unverified:
+            note = ("⚠ link not verifiable automatically; " + note).strip("; ")
+        return j.get("fit"), note
 
     # ---- watchlist
     wl_roles, quiet, pages_rows, hidden, matches_extra, awaiting = [], [], [], 0, [], 0

@@ -122,47 +122,44 @@ class TooBroad(Exception):
     pass
 
 
-def consider_companies(info: dict, max_pages: int = 40) -> list[dict]:
-    out, page, seen, total = [], 0, set(), None
-    while page < max_pages:
-        data = _consider_post(info, "search-companies", page)
-        total = data.get("total") if isinstance(data.get("total"), int) else total
-        if page == 0 and (total or 0) > TOO_BROAD:
-            raise TooBroad(f"board lists {total} companies: shared network, not a portfolio")
-        items = [c for c in data.get("companies") or [] if (c.get("id") or c.get("name")) not in seen]
-        for c in items:
-            seen.add(c.get("id") or c.get("name"))
-        for c in items:
-            out.append({"name": c.get("name") or c.get("id"), "domain": c.get("domain"), "slug": c.get("slug") or c.get("id"),
-                        "locations": c.get("locations") or [], "stage": c.get("stage"), "industries": c.get("markets") or [],
-                        "open_jobs": sum(s.get("count", 0) for s in c.get("jobSources") or []),
-                        "investors": c.get("investors") or [], "board_page": f"{info['base']}/companies/{c.get('slug') or c.get('id')}"})
-        if not items or (total is not None and len(out) >= total):
-            break
-        page += 1
+def consider_companies(info: dict, cap: int = 5000) -> list[dict]:
+    """Consider ignores paging but honours `size`: ask once for the total, then once for everything."""
+    first = _consider_post(info, "search-companies", 0, size=50)
+    total = first.get("total") if isinstance(first.get("total"), int) else 50
+    if total > TOO_BROAD:
+        raise TooBroad(f"board lists {total} companies: shared network, not a portfolio")
+    data = first if total <= 50 else _consider_post(info, "search-companies", 0, size=min(total, cap))
+    out, seen = [], set()
+    for c in data.get("companies") or []:
+        key = c.get("id") or c.get("name")
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"name": c.get("name") or c.get("id"), "domain": c.get("domain"), "slug": c.get("slug") or c.get("id"),
+                    "locations": c.get("locations") or [], "stage": c.get("stage"), "industries": c.get("markets") or [],
+                    "open_jobs": sum(s_.get("count", 0) for s_ in c.get("jobSources") or []),
+                    "investors": c.get("investors") or [], "board_page": f"{info['base']}/companies/{c.get('slug') or c.get('id')}"})
     return out
 
 
-def consider_jobs(info: dict, max_pages: int = 60) -> list[dict]:
-    out, page, seen, total = [], 0, set(), None
-    while page < max_pages:
-        data = _consider_post(info, "search-jobs", page)
-        total = data.get("total") if isinstance(data.get("total"), int) else total
-        items = [j for j in data.get("jobs") or [] if str(j.get("id") or j.get("applyUrl")) not in seen]
-        for j in items:
-            seen.add(str(j.get("id") or j.get("applyUrl")))
-        for j in items:
-            locs = j.get("locations") or []
-            locs = [l if isinstance(l, str) else (l.get("label") or l.get("name") or "") for l in locs]
-            remote = bool(j.get("remote")) or any("remote" in l.lower() for l in locs)
-            out.append({"id": str(j.get("id") or j.get("applyUrl")), "company": j.get("companyName"), "company_slug": j.get("companySlug"),
-                        "title": j.get("title"), "locations": [l for l in locs if l], "remote": remote,
-                        "workplace": "remote" if remote else "", "url": j.get("applyUrl") or j.get("url"),
-                        "published": j.get("timeStamp") or j.get("createdAt"), "department": ", ".join(j.get("departments") or []),
-                        "salary": "", "description": ""})
-        if not items or (total is not None and len(out) >= total):
-            break
-        page += 1
+def consider_jobs(info: dict, cap: int = 8000) -> list[dict]:
+    first = _consider_post(info, "search-jobs", 0, size=50)
+    total = first.get("total") if isinstance(first.get("total"), int) else 50
+    data = first if total <= 50 else _consider_post(info, "search-jobs", 0, size=min(total, cap))
+    out, seen = [], set()
+    for j in data.get("jobs") or []:
+        key = str(j.get("id") or j.get("applyUrl"))
+        if key in seen:
+            continue
+        seen.add(key)
+        locs = j.get("locations") or []
+        locs = [l if isinstance(l, str) else (l.get("label") or l.get("name") or "") for l in locs]
+        remote = bool(j.get("remote")) or any("remote" in l.lower() for l in locs)
+        out.append({"id": key, "company": j.get("companyName"), "company_slug": j.get("companySlug"),
+                    "title": j.get("title"), "locations": [l for l in locs if l], "remote": remote,
+                    "workplace": "remote" if remote else "", "url": j.get("applyUrl") or j.get("url"),
+                    "published": j.get("timeStamp") or j.get("createdAt"), "department": ", ".join(j.get("departments") or []),
+                    "salary": "", "description": ""})
     return out
 
 

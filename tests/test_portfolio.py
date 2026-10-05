@@ -13,6 +13,7 @@ def test_getro_mapping():
 def test_consider_mapping():
     page = {"jobs": [{"id": 1, "title": "Chief of Staff", "companyName": "Lawhive", "companySlug": "lawhive",
                       "locations": ["London, UK"], "applyUrl": "https://jobs.ashbyhq.com/lawhive/abc"}]}
+    page["total"] = 1
     with mock.patch.object(pf, "_consider_post", lambda info, what, page_, size=100: page):
         out = pf.consider_jobs({"base": "https://careers.b.com", "board": {"id": "b"}})
     assert out[0]["company"] == "Lawhive" and out[0]["url"].startswith("https://jobs.ashbyhq.com")

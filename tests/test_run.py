@@ -71,6 +71,12 @@ def test_two_runs(tmp_path, monkeypatch):
         assert {c["title"] for c in q} == {"Chief of Staff", "Solutions Engineer", "Chief of Staff, London"}
         assert wl["PageCo"]["roles"][0]["url"] == "https://pageco.example/careers/chief-of-staff-london"
         rep = (tmp_path / "report/report.md").read_text()
+        assert "jobs.ashbyhq.com/acme/1" not in rep and "waiting for Snoopy" in rep   # unjudged: not published
+        ids = {c["title"]: c["id"] for c in q}
+        (tmp_path / "judged.json").write_text(json.dumps({ids["Chief of Staff"]: {"fit": "keep"}, ids["Solutions Engineer"]: {"fit": "stretch", "note": "gap"}}))
+        from radar import report as rep_mod
+        rep_mod.build(tmp_path, skip_verify=True)
+        rep = (tmp_path / "report/report.md").read_text()
         assert "[Chief of Staff](https://jobs.ashbyhq.com/acme/1)" in rep and "Solutions Engineer" in rep
 
         # second run: nothing new; page changed
@@ -86,7 +92,8 @@ def test_two_runs(tmp_path, monkeypatch):
 
     # reviewer cuts the market role -> hidden from the report
     pend_id = [c["id"] for c in pend if c["layer"] == "market"][0]
-    (tmp_path / "judged.json").write_text(json.dumps({pend_id: {"fit": "cut"}}))
+    j = json.loads((tmp_path / "judged.json").read_text()); j[pend_id] = {"fit": "cut"}
+    (tmp_path / "judged.json").write_text(json.dumps(j))
     from radar import report
     r = report.build(tmp_path, skip_verify=True)
     assert not r["market_roles"] and r["hidden_cut"] == 1

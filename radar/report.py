@@ -57,7 +57,7 @@ def build(data: Path, cfg: dict | None = None, skip_verify: bool = False) -> dic
         return j.get("fit"), j.get("note", "")
 
     # ---- watchlist
-    wl_roles, quiet, pages_rows, hidden, matches_extra = [], [], [], 0, []
+    wl_roles, quiet, pages_rows, hidden, matches_extra, awaiting = [], [], [], 0, [], 0
     for name, s in sorted(wl.items(), key=lambda kv: (kv[1].get("kind") != "vc", kv[0].lower())):
         shown = []
         for r in s.get("roles", []):
@@ -65,6 +65,9 @@ def build(data: Path, cfg: dict | None = None, skip_verify: bool = False) -> dic
             if fit == "cut" or r["id"] in closed:
                 hidden += 1
                 continue
+            if fit is None:
+                awaiting += 1
+                continue                        # not judged yet: never published
             shown.append({**r, "company": name, "kind": s.get("kind"), "fit": fit, "note": note})
         wl_roles += shown
         if s.get("board") == "" and s.get("page_status"):
@@ -91,6 +94,9 @@ def build(data: Path, cfg: dict | None = None, skip_verify: bool = False) -> dic
         if fit == "cut" or m["id"] in closed:
             hidden += 1
             continue
+        if fit is None:
+            awaiting += 1
+            continue
         mk.append({**m, "fit": fit, "note": note})
     mk += [{**m, "found": m.get("found") or m.get("first_seen", "")} for m in matches_extra]
     mk.sort(key=lambda m: (m.get("kind") != "vc", rank.get(m.get("fit"), 3), m["company"].lower()))
@@ -98,7 +104,7 @@ def build(data: Path, cfg: dict | None = None, skip_verify: bool = False) -> dic
     rep = {"updated": health.get("run_at"), "boards": health.get("boards"), "watchlist_size": len(wl),
            "watchlist_roles": wl_roles, "watchlist_quiet": quiet, "pages": pages_rows,
            "market_days": days, "market_roles": mk, "hidden_cut": hidden,
-           "closed_count": len(closed),
+           "closed_count": len(closed), "awaiting_review": awaiting,
            "failing": (health.get("not_found") or []) + [f for f in health.get("failed") or [] if f.get("consecutive_fails", 0) >= 2],
            "audit": audit}
     out = data / "report"
@@ -158,6 +164,8 @@ def render_md(rep: dict, local_label: str) -> str:
     else:
         L += ["No new market matches in this period.", ""]
 
+    if rep.get("awaiting_review"):
+        L += [f"_{rep['awaiting_review']} roles passed the filters and are waiting for Snoopy's judgement; they appear once judged._", ""]
     L += ["## 3. Needs attention", ""]
     for f in rep["failing"]:
         L.append(f"- Job board not responding: {_md(f['company'])} ({f['board']}: {_md(f['error'])[:80]})")

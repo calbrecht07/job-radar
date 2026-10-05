@@ -90,7 +90,6 @@ details summary{cursor:pointer;font-weight:600}
       <button class="chip" data-f="fit" data-v="all" aria-pressed="true">All</button>
       <button class="chip" data-f="fit" data-v="keep" aria-pressed="false">Keep</button>
       <button class="chip" data-f="fit" data-v="stretch" aria-pressed="false">Stretch</button>
-      <button class="chip" data-f="fit" data-v="review" aria-pressed="false">To review</button>
     </div>
     <div class="chips" role="group" aria-label="Where">
       <button class="chip" data-f="pool" data-v="all" aria-pressed="true">Anywhere</button>
@@ -129,7 +128,7 @@ details summary{cursor:pointer;font-weight:600}
   document.getElementById("stats").innerHTML = [
     [n(r => r.fit === "keep"), "Keep"],
     [n(r => r.fit === "stretch"), "Stretch"],
-    [n(r => !r.fit), "To review"],
+    [D.awaiting_review || 0, "Awaiting judgement"],
     [withRoles + " / " + D.watchlist_size, "Watchlist companies hiring"],
     [D.market_roles.length, "Market matches, " + D.market_days + " days"],
   ].map(([b,s]) => `<div class="stat"><b>${esc(b)}</b><span>${esc(s)}</span></div>`).join("");

@@ -56,10 +56,17 @@ def build(data: Path, cfg: dict | None = None, skip_verify: bool = False) -> dic
 
     def verdict(rid):
         j = judged.get(rid) or {}
-        note = j.get("note", "")
-        if rid in unverified:
-            note = ("⚠ link not verifiable automatically; " + note).strip("; ")
-        return j.get("fit"), note
+        return j.get("fit"), j.get("note", "")
+
+    # judged roles whose link the code couldn't verify (JavaScript-only page, feed unavailable): published
+    # separately, never in the main lists, so everything in the main lists is confirmed live
+    unverified_roles = []
+
+    def park_if_unverified(row):
+        if row["id"] in unverified:
+            unverified_roles.append({**row, "why": unverified[row["id"]].replace("unverified: ", "")})
+            return True
+        return False
 
     # ---- watchlist
     wl_roles, quiet, pages_rows, hidden, matches_extra, awaiting = [], [], [], 0, [], 0
@@ -73,7 +80,9 @@ def build(data: Path, cfg: dict | None = None, skip_verify: bool = False) -> dic
             if fit is None:
                 awaiting += 1
                 continue                        # not judged yet: never published
-            shown.append({**r, "company": name, "kind": s.get("kind"), "fit": fit, "note": note})
+            row = {**r, "company": name, "kind": s.get("kind"), "fit": fit, "note": note}
+            if not park_if_unverified(row):
+                shown.append(row)
         wl_roles += shown
         if s.get("board") == "" and s.get("page_status"):
             pages_rows.append({"company": name, "status": s["page_status"], "added": s.get("page_added") or [],
@@ -86,7 +95,8 @@ def build(data: Path, cfg: dict | None = None, skip_verify: bool = False) -> dic
         if e.get("closed") or e.get("fit") == "cut" or e.get("id") in closed:
             continue
         row = {"pool": "local", "locations": [], "workplace": "", "flags": [], "first_seen": e.get("found", "")[:10], **e}
-        (wl_roles if e.get("layer", "watchlist") == "watchlist" else matches_extra).append(row)
+        if not park_if_unverified(row):
+            (wl_roles if e.get("layer", "watchlist") == "watchlist" else matches_extra).append(row)
     rank = {"keep": 0, "stretch": 1, None: 2}
     wl_roles.sort(key=lambda r: (r.get("kind") != "vc", rank.get(r.get("fit"), 3), r["company"].lower()))
 
@@ -102,14 +112,17 @@ def build(data: Path, cfg: dict | None = None, skip_verify: bool = False) -> dic
         if fit is None:
             awaiting += 1
             continue
-        mk.append({**m, "fit": fit, "note": note})
+        row = {**m, "fit": fit, "note": note}
+        if not park_if_unverified(row):
+            mk.append(row)
     mk += [{**m, "found": m.get("found") or m.get("first_seen", "")} for m in matches_extra]
     mk.sort(key=lambda m: (m.get("kind") != "vc", rank.get(m.get("fit"), 3), m["company"].lower()))
 
     rep = {"updated": health.get("run_at"), "boards": health.get("boards"), "watchlist_size": len(wl),
            "watchlist_roles": wl_roles, "watchlist_quiet": quiet, "pages": pages_rows,
            "market_days": days, "market_roles": mk, "hidden_cut": hidden,
-           "closed_count": len(closed), "awaiting_review": awaiting,
+           "closed_count": len(closed), "awaiting_review": awaiting, "unverified_roles": unverified_roles,
+           "verified_at": vres.get("updated"),
            "failing": (health.get("not_found") or []) + [f for f in health.get("failed") or [] if f.get("consecutive_fails", 0) >= 2],
            "audit": audit}
     out = data / "report"
@@ -128,6 +141,9 @@ def render_md(rep: dict, local_label: str) -> str:
           f"Updated {(rep.get('updated') or '')[:16].replace('T', ' ')} UTC · {rep.get('boards')} job boards checked · "
           f"{rep['watchlist_size']} watchlist companies", ""]
 
+    if rep.get("verified_at"):
+        L += [f"_Every link below was confirmed live at {rep['verified_at'][:16].replace('T', ' ')} UTC "
+              f"({rep.get('closed_count', 0)} closed postings removed)._", ""]
     L += ["## 1. Watchlist", "", f"**{with_roles} of {rep['watchlist_size']} companies have matching roles open.**", ""]
     if rep["watchlist_roles"]:
         L += ["| Company | Role | Where | Fit | Since | Notes |", "|---|---|---|---|---|---|"]
@@ -169,6 +185,12 @@ def render_md(rep: dict, local_label: str) -> str:
     else:
         L += ["No new market matches in this period.", ""]
 
+    if rep.get("unverified_roles"):
+        L += ["## Could not verify automatically: check the link before applying", "",
+              "_These pages only render with JavaScript, so the code can't confirm the posting is still open._", ""]
+        for r in rep["unverified_roles"]:
+            L.append(f"- {_md(r['company'])}: [{_md(r['title'])}]({r['url']}) · {FIT.get(r.get('fit'), r.get('fit'))} · {_md(r.get('note', ''))[:120]}")
+        L.append("")
     if rep.get("awaiting_review"):
         L += [f"_{rep['awaiting_review']} roles passed the filters and are waiting for Snoopy's judgement; they appear once judged._", ""]
     L += ["## 3. Needs attention", ""]

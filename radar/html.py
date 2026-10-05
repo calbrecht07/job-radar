@@ -182,6 +182,8 @@ details summary{cursor:pointer;font-weight:600}
   const A = [];
   (D.failing||[]).forEach(f => A.push(`<p class="warn">Job board not responding: ${esc(f.company)} (${esc(f.board)})</p>`));
   (D.audit||[]).forEach(a => A.push(`<p>${esc(a.company)}: careers page links to ${a.found_on_page.map(b => "<code>"+esc(b)+"</code>").join(", ")}${a.configured ? " (configured: <code>"+esc(a.configured)+"</code>)" : ""}</p>`));
+  (D.unverified_roles||[]).forEach(r => A.push(`<p class="warn">Could not verify the link (page needs JavaScript), check before applying: <b>${esc(r.company)}</b> · <a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a> · ${FITL[fitKey(r)]}${r.note ? " · " + esc(r.note) : ""}</p>`));
+  if (D.verified_at) A.push(`<p class="sub">Every listed link was confirmed live at ${esc((D.verified_at||"").replace("T"," ").slice(0,16))} UTC; ${D.closed_count||0} closed postings removed.</p>`);
   if (D.hidden_cut) A.push(`<p class="sub">${D.hidden_cut} reviewed roles were cut and are hidden.</p>`);
   document.getElementById("attnList").innerHTML = A.join("") || `<p class="empty">Nothing needs attention.</p>`;
   render();

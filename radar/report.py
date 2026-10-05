@@ -93,6 +93,8 @@ def build(data: Path, cfg: dict | None = None) -> dict:
     out.mkdir(exist_ok=True)
     (out / "report.json").write_text(json.dumps(rep, indent=1, ensure_ascii=False) + "\n")
     (out / "report.md").write_text(render_md(rep, local_label))
+    from radar import html
+    html.build(data)
     return rep
 
 

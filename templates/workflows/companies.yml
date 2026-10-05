@@ -34,7 +34,7 @@ jobs:
           python-version: "3.12"
       - run: pip install -q -r .engine/requirements.txt && mkdir -p pool state
       - name: Find hidden job boards for wishlist companies
-        run: PYTHONPATH=.engine python -m radar.discover --data . --fill-wishlist 2>&1 | tee -a pool/companies.log
+        run: set -o pipefail; PYTHONPATH=.engine python -m radar.discover --data . --fill-wishlist 2>&1 | tee -a pool/companies.log
       - name: Boards added by hand (inbox/add.csv)
         if: hashFiles('inbox/add.csv') != ''
         run: |
@@ -43,9 +43,9 @@ jobs:
           git rm -q inbox/add.csv
       - name: Common Crawl discovery
         if: github.event.inputs.skip_discovery != 'true'
-        run: PYTHONPATH=.engine python -m radar.discover --data . --commoncrawl --max-pages 8 --max-probe 4000 2>&1 | tee -a pool/companies.log
+        run: set -o pipefail; PYTHONPATH=.engine python -m radar.discover --data . --commoncrawl --max-pages 8 --max-probe 4000 2>&1 | tee -a pool/companies.log
       - name: Portfolio boards, news, unified pool
-        run: PYTHONPATH=.engine python -m radar.companies --data . 2>&1 | tee -a pool/companies.log
+        run: set -o pipefail; PYTHONPATH=.engine python -m radar.companies --data . 2>&1 | tee -a pool/companies.log
       - name: Commit
         run: |
           git config user.name "job-radar-bot"

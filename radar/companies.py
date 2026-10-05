@@ -32,6 +32,7 @@ from urllib.parse import urlparse
 import yaml
 
 from radar.scan import load_json, read_csv, save_json
+from radar.filters import Filters
 from sources import boards as ats
 from sources import news as news_src
 from sources import portfolio

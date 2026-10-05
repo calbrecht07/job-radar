@@ -18,3 +18,10 @@ def test_check_url_cases():
         with mock.patch.object(verify.requests, "get", lambda *a, **k: resp):
             live, reason = verify.check_url("https://x.com/jobs/1")
             assert live == expected, reason
+
+
+def test_title_shown():
+    from radar.verify import _title_shown
+    assert _title_shown("Senior Founder's Associate", "<h1>Senior Founder's Associate</h1> at Kernel")
+    assert not _title_shown("Senior Founder's Associate", "<div id=root></div>" + "lorem " * 200)
+    assert _title_shown("", "anything")

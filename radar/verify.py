@@ -66,8 +66,17 @@ def check_via_feed(url: str) -> tuple[bool, str] | None:
     return False, "not in the company's job-board feed any more"
 
 
-def check_url(url: str) -> tuple[bool, str]:
-    """(live, reason). Conservative: network trouble counts as live (don't hide roles on a hiccup)."""
+def _title_shown(title: str, text: str) -> bool:
+    """Does the page text mention the role? Three longest title words are enough (Senior Founder's Associate ->
+    founder, associate, senior)."""
+    words = sorted({w.lower() for w in re.findall(r"[A-Za-z][A-Za-z'’-]{2,}", title or "")}, key=len, reverse=True)[:3]
+    low = text.lower()
+    return not words or all(w in low for w in words)
+
+
+def check_url(url: str, title: str = "") -> tuple[bool, str]:
+    """(live, reason). Conservative: network trouble counts as live (don't hide roles on a hiccup), but a page
+    that doesn't even show the role's title can't be called verified (JavaScript app shells, e.g. WTTJ/Otta)."""
     via = check_via_feed(url)
     if via is not None:
         return via
@@ -91,6 +100,8 @@ def check_url(url: str) -> tuple[bool, str]:
         return False, "404 page"
     if len(text) < 400:
         return True, "unverified: page needs JavaScript"
+    if title and not _title_shown(title, r.text):
+        return True, "unverified: page doesn't show the role (needs JavaScript)"
     return True, "ok"
 
 
@@ -127,7 +138,7 @@ def run(data: Path, workers: int = 12) -> dict:
 
     def one(item):
         rid, r = item
-        live, reason = check_url(r.get("url") or "")
+        live, reason = check_url(r.get("url") or "", r.get("title") or "")
         return rid, r, live, reason
 
     with ThreadPoolExecutor(max_workers=workers) as ex:

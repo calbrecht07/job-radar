@@ -123,28 +123,34 @@ class TooBroad(Exception):
 
 
 def consider_companies(info: dict, max_pages: int = 40) -> list[dict]:
-    out, page = [], 0
+    out, page, seen, total = [], 0, set(), None
     while page < max_pages:
         data = _consider_post(info, "search-companies", page)
-        if page == 0 and (data.get("total") or 0) > TOO_BROAD:
-            raise TooBroad(f"board lists {data.get('total')} companies: shared network, not a portfolio")
-        items = data.get("companies") or []
+        total = data.get("total") if isinstance(data.get("total"), int) else total
+        if page == 0 and (total or 0) > TOO_BROAD:
+            raise TooBroad(f"board lists {total} companies: shared network, not a portfolio")
+        items = [c for c in data.get("companies") or [] if (c.get("id") or c.get("name")) not in seen]
+        for c in items:
+            seen.add(c.get("id") or c.get("name"))
         for c in items:
             out.append({"name": c.get("name") or c.get("id"), "domain": c.get("domain"), "slug": c.get("slug") or c.get("id"),
                         "locations": c.get("locations") or [], "stage": c.get("stage"), "industries": c.get("markets") or [],
                         "open_jobs": sum(s.get("count", 0) for s in c.get("jobSources") or []),
                         "investors": c.get("investors") or [], "board_page": f"{info['base']}/companies/{c.get('slug') or c.get('id')}"})
-        if len(items) < 100:
+        if not items or (total is not None and len(out) >= total):
             break
         page += 1
     return out
 
 
 def consider_jobs(info: dict, max_pages: int = 60) -> list[dict]:
-    out, page = [], 0
+    out, page, seen, total = [], 0, set(), None
     while page < max_pages:
         data = _consider_post(info, "search-jobs", page)
-        items = data.get("jobs") or []
+        total = data.get("total") if isinstance(data.get("total"), int) else total
+        items = [j for j in data.get("jobs") or [] if str(j.get("id") or j.get("applyUrl")) not in seen]
+        for j in items:
+            seen.add(str(j.get("id") or j.get("applyUrl")))
         for j in items:
             locs = j.get("locations") or []
             locs = [l if isinstance(l, str) else (l.get("label") or l.get("name") or "") for l in locs]
@@ -154,7 +160,7 @@ def consider_jobs(info: dict, max_pages: int = 60) -> list[dict]:
                         "workplace": "remote" if remote else "", "url": j.get("applyUrl") or j.get("url"),
                         "published": j.get("timeStamp") or j.get("createdAt"), "department": ", ".join(j.get("departments") or []),
                         "salary": "", "description": ""})
-        if len(items) < 100:
+        if not items or (total is not None and len(out) >= total):
             break
         page += 1
     return out

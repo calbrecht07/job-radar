@@ -73,6 +73,7 @@ def main(argv=None):
     cfg = yaml.safe_load((data / "settings.yaml").read_text()) or {}
     cs = cfg.get("company_search") or {}
     region = re.compile("|".join(cs.get("region_terms") or []), re.I) if cs.get("region_terms") else None
+    flt = Filters(cfg)
     (data / "pool").mkdir(exist_ok=True)
 
     wishlist = read_csv(data / "wishlist.csv")
@@ -125,6 +126,19 @@ def main(argv=None):
     # ---- news
     news_items = news_src.collect(cs.get("news_feeds"), days=int(cs.get("news_days", 8)), region_terms=cs.get("region_terms"))
 
+    # relevance: how many of a company's portfolio-board jobs match the person's role titles (any location)
+    # and how many of those are in region / remote-OK
+    match_counts: dict[str, dict] = {}
+    for j in port_jobs:
+        k = _norm(j.get("company"))
+        mc = match_counts.setdefault(k, {"matching": 0, "matching_in_region": 0, "examples": []})
+        if flt.title_ok(j.get("title") or "", "startup"):
+            mc["matching"] += 1
+            if region_ok(j.get("locations") or [], region) or flt.is_remote(j):
+                mc["matching_in_region"] += 1
+                if len(mc["examples"]) < 3:
+                    mc["examples"].append({"title": j.get("title"), "url": j.get("url")})
+
     # ---- unified pool
     pool: dict[str, dict] = {}
     def add(key, name, kind, source, **extra):
@@ -157,10 +171,19 @@ def main(argv=None):
                 vcs=[c["vc"]] + (c.get("investors") or []))
         e["open_jobs_on_board"] = c.get("open_jobs")
         e["in_region"] = region_ok(c.get("locations") or [], region)
+        mc = match_counts.get(_norm(c.get("name")), {})
+        e["matching_roles"] = mc.get("matching", 0)
+        e["matching_roles_in_region"] = mc.get("matching_in_region", 0)
+        e["role_examples"] = mc.get("examples", [])
 
     companies = sorted(pool.values(), key=lambda c: c["name"].lower())
     new_keys = [c["key"] for c in companies if c["key"] not in prev_pool]
-    in_region_new = [c for c in companies if c["key"] in new_keys and c.get("in_region", True) and "wishlist" not in c["sources"]]
+    # Monday review list: new companies with at least one matching role open in region, best first.
+    # Everything else new is counted, not listed (the opportunity search still covers their boards).
+    in_region_new = sorted(
+        [c for c in companies if c["key"] in new_keys and "wishlist" not in c["sources"]
+         and c.get("matching_roles_in_region", 0) > 0],
+        key=lambda c: -c.get("matching_roles_in_region", 0))
 
     # ---- write
     save_json(data / "pool/portfolio.json", {"updated": NOW.isoformat(timespec="minutes"), "boards": board_health,
@@ -170,8 +193,10 @@ def main(argv=None):
     save_json(data / "pool/companies.json", {"updated": NOW.isoformat(timespec="minutes"), "count": len(companies), "companies": companies})
     save_json(data / "pool/new_this_week.json", {
         "updated": NOW.isoformat(timespec="minutes"),
-        "new_companies_in_region": [{k: c.get(k) for k in ("name", "domain", "locations", "stage", "industries", "vcs", "sources", "boards", "open_jobs_on_board")}
-                                     for c in in_region_new],
+        "new_companies_in_region": [{k: c.get(k) for k in ("name", "domain", "locations", "stage", "industries", "vcs", "sources", "boards",
+                                                           "open_jobs_on_board", "matching_roles_in_region", "role_examples")}
+                                     for c in in_region_new[:80]],
+        "new_companies_in_region_total": len(in_region_new),
         "new_companies_total": len(new_keys),
         "new_boards_from_portfolio": new_index_rows,
         "news": news_items[:150],

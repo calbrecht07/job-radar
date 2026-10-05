@@ -154,6 +154,7 @@ company_search:
   directories:
     - {name: Entrepreneur First, url: https://portfolio.joinef.com, type: auto}
   discovery_per_run: 800         # careers pages discovered per weekly run (new companies first)
+  discovery_minutes: 90          # time budget for that; the rest waits for next week
   recheck_days: 30               # how often a company's careers page is re-discovered
   # directory_pages_per_run: 0   # own-site careers pages the scan checks per run (default: all, once a day)
   # directory_job_pages_per_run: 60  # job pages opened per run to read a role's location

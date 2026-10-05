@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import html as htmlmod
 import re
+import threading
+import time
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
 
@@ -70,11 +72,34 @@ _TAG = pages._TAG
 _SOCIAL = re.compile(r"linkedin\.com|facebook\.com|twitter\.com|x\.com/|instagram\.com|youtube\.com|glassdoor|indeed\.", re.I)
 
 
+COMPANY_SECONDS = 45            # whole-discovery budget per company: slow sites must not hold a thread
+MAX_BYTES = 2_000_000
+_LOCAL = threading.local()
+
+
+class OverBudget(requests.Timeout):
+    pass
+
+
 def _get(url: str):
-    r = requests.get(url, headers=HEADERS, timeout=TIMEOUT, allow_redirects=True)
+    """GET with a per-company deadline: a slow-drip server or a huge sitemap can't stall the run."""
+    deadline = getattr(_LOCAL, "deadline", None)
+    left = (deadline - time.monotonic()) if deadline else TIMEOUT
+    if left <= 1:
+        raise OverBudget(f"company time budget used up before {url}")
+    r = requests.get(url, headers=HEADERS, timeout=(min(8, left), min(TIMEOUT, left)), allow_redirects=True, stream=True)
     ctype = r.headers.get("content-type", "")
-    text = r.text if ("html" in ctype or "xml" in ctype or "json" in ctype or not ctype) else ""
-    return r, text[:2_000_000]
+    chunks, size = [], 0
+    if "html" in ctype or "xml" in ctype or "json" in ctype or not ctype:
+        for chunk in r.iter_content(65536):
+            chunks.append(chunk)
+            size += len(chunk)
+            if size >= MAX_BYTES or (deadline and time.monotonic() > deadline):
+                break
+    r.close()
+    raw = b"".join(chunks)
+    text = raw.decode(r.encoding or "utf-8", errors="replace")
+    return r, text
 
 
 def registrable(host_or_url: str) -> str:
@@ -154,7 +179,16 @@ def own_jobs(raw: str, url: str, company: str) -> list[dict]:
     return out
 
 
-def discover(company: dict) -> dict:
+def discover(company: dict, seconds: float = COMPANY_SECONDS) -> dict:
+    """See the module docstring. Every request shares one deadline of `seconds`."""
+    _LOCAL.deadline = time.monotonic() + seconds
+    try:
+        return _discover(company)
+    finally:
+        _LOCAL.deadline = None
+
+
+def _discover(company: dict) -> dict:
     name, site = company.get("name", ""), company.get("website", "")
     prof = {"checked": datetime.now(timezone.utc).date().isoformat(), "careers_url": "", "method": "none",
             "board": "", "enterprise": "", "jobs": [], "final_url": "", "error": ""}
@@ -222,6 +256,8 @@ def discover(company: dict) -> dict:
     for a, s in boards.detect_boards(blob):
         if a in boards.ADAPTERS and boards.plausible(name, s, site):
             prof.update(method="feed", board=f"{a}:{s}")
+            if _LOCAL.deadline and _LOCAL.deadline - time.monotonic() < 5:
+                return prof                        # the board is what matters; the scan reads its jobs
             try:
                 prof["jobs"] = [{"title": p["title"], "url": p["url"], "locations": p.get("locations") or [],
                                  "remote": p.get("remote")} for p in boards.fetch(a, s)]

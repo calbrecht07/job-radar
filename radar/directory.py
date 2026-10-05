@@ -248,6 +248,7 @@ def main(argv=None):
     ap.add_argument("--directory", default=os.environ.get("RADAR_DIRECTORY"), help="shared directory repo (default <data>/.directory)")
     ap.add_argument("--max", type=int, default=None, help="max companies to discover this run")
     ap.add_argument("--workers", type=int, default=16)
+    ap.add_argument("--minutes", type=int, default=None, help="time budget for discovery (default discovery_minutes or 90)")
     ap.add_argument("--no-wikidata", action="store_true")
     ap.add_argument("--no-discovery", action="store_true", help="only collect companies")
     args = ap.parse_args(argv)
@@ -308,10 +309,17 @@ def main(argv=None):
     due = [] if args.no_discovery else due[:limit]
     found_roles = []
     t0 = time.time()
+    budget = 60 * (args.minutes if args.minutes is not None else int(cs.get("discovery_minutes") or 90))
+    done = 0
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
         futs = {ex.submit(careers.discover, {"name": r["name"], "website": r["website"]}): r for r in due}
         for i, fut in enumerate(as_completed(futs), 1):
+            if time.time() - t0 > budget:              # out of time: stop cleanly, the rest waits for next week
+                cancelled = sum(f.cancel() for f in futs)
+                log(f"discovery: time budget reached, {cancelled} companies left for the next run")
+                break
             r = futs[fut]
+            done += 1
             try:
                 p = fut.result()
             except Exception as e:
@@ -325,9 +333,11 @@ def main(argv=None):
             if matches:
                 found_roles.append({"company": r["name"], "key": r["key"], "method": r["method"], "careers_url": r["careers_url"],
                                     "kind": r["kind"], "roles": matches[:5], "matching": len(matches)})
-            if i % 100 == 0:
+            if i % 100 == 0:                           # save as we go: a killed run keeps its work
                 log(f"discovery: {i}/{len(due)}")
-    log(f"discovery: {len(due)} companies in {round(time.time() - t0)} s")
+                write_directory(dpath, directory)
+                write_directory(local_copy, directory)
+    log(f"discovery: {done} companies in {round(time.time() - t0)} s")
     write_directory(dpath, directory)
     write_directory(local_copy, directory)
 
@@ -360,7 +370,7 @@ def main(argv=None):
             ents[r["enterprise"]] = ents.get(r["enterprise"], 0) + 1
     found_roles.sort(key=lambda x: -x["matching"])
     summary = {"updated": NOW.isoformat(timespec="minutes"), "city": cs["city"], "companies": len(directory),
-               "new_companies": len(new_keys), "discovered_this_run": len(due), "methods": methods,
+               "new_companies": len(new_keys), "discovered_this_run": done, "methods": methods,
                "enterprise_systems_without_adapter": dict(sorted(ents.items(), key=lambda x: -x[1])),
                "new_index_rows": len(new_index), "pages_watched": len(watch),
                "companies_with_matching_titles": found_roles[:100], "log": logs}

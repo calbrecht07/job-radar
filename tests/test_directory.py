@@ -14,9 +14,16 @@ SETTINGS = {"roles": {"include": ["chief of staff", "solutions? architect", "pro
 
 
 class R:
-    def __init__(self, status=200, text="", url="https://x.com/", headers=None):
+    def __init__(self, status=200, text="", url="https://x.com/", headers=None, encoding="utf-8"):
+        self.encoding = encoding
         self.status_code, self.text, self.url = status, text, url
         self.headers = headers or {"content-type": "text/html"}
+
+    def iter_content(self, n):
+        yield self.text.encode()
+
+    def close(self):
+        pass
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -168,3 +175,16 @@ def test_located_reads_job_page():
     with mock.patch.object(scan.pages.requests, "get", lambda *a, **k: R(text="<p>Chief of Staff</p><p>Based in Chicago</p>" * 5)):
         p = scan.located({"title": "Chief of Staff", "url": "https://acme.com/job/1"}, flt)
     assert not p.get("locations") and flt.evaluate(p, {"kind": "corporate"}).reason == "location"
+
+
+def test_company_time_budget():
+    import time as _t
+    careers._LOCAL.deadline = _t.monotonic() - 1
+    try:
+        try:
+            careers._get("https://slow.example")
+            assert False, "should refuse once the budget is spent"
+        except careers.OverBudget:
+            pass
+    finally:
+        careers._LOCAL.deadline = None

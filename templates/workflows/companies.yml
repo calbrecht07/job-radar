@@ -1,6 +1,7 @@
 # Copy to .github/workflows/companies.yml in YOUR data repo (private).
-# Weekly company search: VC portfolio boards, funding news, Common Crawl discovery, hidden boards
-# for wishlist companies. Writes pool/ and grows index.csv. Snoopy reviews pool/new_this_week.json.
+# Weekly company search: VC portfolio boards, funding news, Common Crawl discovery, hidden boards for wishlist
+# companies, and the company directory (Wikidata by city and industry, directory pages, agent research) with
+# careers discovery. Writes pool/ and grows index.csv. Snoopy reviews pool/new_this_week.json and pool/directory.json.
 name: companies
 
 on:
@@ -23,12 +24,20 @@ jobs:
   companies:
     runs-on: ubuntu-latest
     timeout-minutes: 300
+    env:
+      # optional: a token with write access to the shared directory repo, to contribute what discovery learns
+      DIRECTORY_TOKEN: ${{ secrets.DIRECTORY_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
           repository: calbrecht07/job-radar
           path: .engine
+      - uses: actions/checkout@v4
+        with:
+          repository: calbrecht07/job-radar-directory
+          path: .directory
+          token: ${{ secrets.DIRECTORY_TOKEN || github.token }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -46,6 +55,19 @@ jobs:
         run: set -o pipefail; PYTHONPATH=.engine python -m radar.discover --data . --commoncrawl --max-pages 8 --max-probe 4000 2>&1 | tee -a pool/companies.log
       - name: Portfolio boards, news, unified pool
         run: set -o pipefail; PYTHONPATH=.engine python -m radar.companies --data . 2>&1 | tee -a pool/companies.log
+      - name: Company directory (Wikidata, directories, research) and careers discovery
+        run: set -o pipefail; PYTHONPATH=.engine python -m radar.directory --data . --directory .directory 2>&1 | tee -a pool/companies.log
+      - name: Share the directory
+        if: env.DIRECTORY_TOKEN != ''
+        working-directory: .directory
+        run: |
+          git config user.name "job-radar-bot"
+          git config user.email "job-radar-bot@users.noreply.github.com"
+          git add -A cities
+          git diff --cached --quiet && exit 0
+          git commit -q -m "directory: $(git diff --cached --name-only | tr '\n' ' ')"
+          for i in 1 2 3; do git pull -q --rebase && git push -q && exit 0; sleep 5; done
+          exit 1
       - name: Commit
         run: |
           git config user.name "job-radar-bot"

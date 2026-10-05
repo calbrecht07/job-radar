@@ -35,8 +35,8 @@ from pathlib import Path
 
 import yaml
 
-from sources import boards as ats, pages
-from radar import report
+from sources import boards as ats, jobdata, pages
+from radar import careers, report
 from radar.filters import Filters, Verdict
 
 NOW = datetime.now(timezone.utc)
@@ -139,6 +139,11 @@ def fill_descriptions(cands: list, limit: int, workers: int) -> int:
 
     def one(c):
         try:
+            wd = ats.workday_description(c["url"]) if "myworkday" in c["url"] else None
+            if wd:
+                c["description"] = wd[:7000]
+                c["flags"] = [f for f in c.get("flags", []) if "open the link" not in f]
+                return
             r = pages.requests.get(c["url"], headers=pages.UA, timeout=25)
             if r.status_code < 400:
                 text = "\n".join(pages.page_text(r.text))
@@ -159,6 +164,50 @@ def fetch_one(c: dict):
         return c, None, "not_found"
     except Exception as e:  # network, 5xx, bad JSON
         return c, None, f"{type(e).__name__}: {str(e)[:160]}"
+
+
+def directory_page(d: dict):
+    """Current jobs on a directory company's careers page: schema.org job data if the page has it, else the
+    posting links on it. -> (d, [posting], error)"""
+    try:
+        r = pages.requests.get(d["careers_url"], headers=careers.HEADERS, timeout=25)
+        if r.status_code >= 400:
+            return d, [], f"HTTP {r.status_code}"
+        found = [p for p in jobdata.postings(r.text, r.url) if not jobdata.expired(p)]
+        if found:
+            return d, found, None
+        return d, [{"title": j["title"], "url": j["url"], "locations": [], "description": ""}
+                   for j in careers.own_jobs(r.text, r.url, d["name"])], None
+    except Exception as e:
+        return d, [], type(e).__name__
+
+
+def located(p: dict, flt: Filters) -> dict:
+    """Open a posting found as a link and read where it is: its job data if present, else the page text.
+    A page that names neither the person's city nor a remote region is left without a location (dropped)."""
+    p = {**p, "_flags": []}
+    try:
+        r = pages.requests.get(p["url"], headers=careers.HEADERS, timeout=25)
+        if r.status_code >= 400:
+            return p
+    except Exception:
+        return p
+    data = jobdata.postings(r.text, p["url"])
+    if data:
+        best = data[0]
+        return {**p, "locations": best["locations"], "remote": best["remote"], "workplace": best["workplace"],
+                "description": best["description"] or p.get("description", ""), "published": best.get("published"),
+                "_flags": ["location from the job page's data"]}
+    text = "\n".join(pages.page_text(r.text))
+    p["description"] = text[:7000]
+    m = next((rx.search(text) for rx in flt.local if rx.search(text)), None)
+    if m:
+        return {**p, "locations": [m.group(0)], "_flags": ["location read from the job page text: check it"]}
+    if re.search(r"\b(fully )?remote\b", text, re.I):
+        m = next((rx.search(text) for rx in flt.allowed if rx.search(text)), None)
+        return {**p, "remote": True, "locations": [f"Remote - {m.group(0)}"] if m else ["Remote"],
+                "_flags": ["remote read from the job page text: check it"]}
+    return p
 
 
 def candidate(c: dict, p: dict, v, key: str, max_desc: int) -> dict:
@@ -374,6 +423,62 @@ def main(argv=None):
     stats["pages_checked"] = len(checked)
     stats["pages_changed"] = sum(1 for _, r in checked if r.get("status") == "changed")
 
+    # ---- directory careers pages (market layer): companies whose jobs live only on their own website,
+    # found by radar.directory. Checked in rotation; title matches are opened to find the location.
+    cs = cfg.get("company_search") or {}
+    dir_pages = load_json(data / "pool/directory_pages.json", [])
+    if args.only:
+        dir_pages = [d for d in dir_pages if d["name"].lower() in want]
+    dstate: dict = load_json(data / "state/directory_pages.json", {})
+    per_run = int(cs.get("directory_pages_per_run") or -(-len(dir_pages) // 6))   # whole list daily at 6 scans/day
+    due = sorted(dir_pages, key=lambda d: dstate.get(d["key"], {}).get("checked", ""))[:per_run]
+    job_page_budget = [int(cs.get("directory_job_pages_per_run") or 60)]
+    with ThreadPoolExecutor(max_workers=args.workers) as ex:
+        dir_results = list(ex.map(directory_page, due))
+    dir_stats = {"checked": len(due), "errors": 0, "links": 0, "title_matches": 0, "deferred": 0}
+    for d, jobs, err in dir_results:
+        st = dstate.setdefault(d["key"], {})
+        st["checked"] = NOW.isoformat(timespec="minutes")
+        if err:
+            st["error"] = err
+            dir_stats["errors"] += 1
+            continue
+        st.pop("error", None)
+        st["jobs"] = len(jobs)
+        dir_stats["links"] += len(jobs)
+        c = {"name": d["name"], "kind": d.get("kind") or "startup", "layer": "market", "ats": "page", "slug": d["key"],
+             "source": "directory", "careers_url": d["careers_url"]}
+        for p in jobs:
+            key = p["url"]
+            current_keys.add(key)
+            if key in seen:
+                continue
+            if not flt.title_ok(p.get("title") or "", c["kind"]):
+                seen[key] = [TODAY, "dirpage:" + d["key"]]
+                stats["new_postings"] += 1
+                drop("title")
+                continue
+            if not p.get("locations") and not p.get("remote"):
+                if job_page_budget[0] <= 0:
+                    dir_stats["deferred"] += 1          # not marked seen: picked up on the next run
+                    continue
+                job_page_budget[0] -= 1
+                p = located(p, flt)
+            seen[key] = [TODAY, "dirpage:" + d["key"]]
+            stats["new_postings"] += 1
+            v = flt.evaluate(p, c)
+            if not v.keep:
+                drop(v.reason)
+                continue
+            if mk_cutoff and too_old(p.get("published"), mk_cutoff):
+                drop("market_too_old")
+                continue
+            dir_stats["title_matches"] += 1
+            v.flags = v.flags + p.get("_flags", [])
+            new_cands.append(candidate(c, p, v, key, max_desc))
+            stats["new_candidates"]["market"] += 1
+    stats["directory_pages"] = dir_stats
+
     # ---- prune + queue
     cutoff = (NOW - timedelta(days=90)).date().isoformat()
     seen = {k: v for k, v in seen.items() if k in current_keys or v[0] >= cutoff or v[1] in failed}
@@ -405,6 +510,7 @@ def main(argv=None):
     save_json(data / "state/live.json", sorted(current_keys), indent=0)
     save_json(data / "state/companies.json", cstate)
     save_json(data / "state/pages.json", pstate)
+    save_json(data / "state/directory_pages.json", dstate)
     save_json(data / "scan/pending.json", pending)
     # archive of every candidate (no descriptions) for the report, 60 days
     arch_after = (NOW - timedelta(days=60)).isoformat()

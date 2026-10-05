@@ -53,8 +53,9 @@ roles:
     - software engineer|backend|frontend|full[- ]?stack|machine learning engineer|ml engineer|research (engineer|scientist)
     - \bnurse\b|\bcarer\b|care assistant|driver
 
-# Which kinds of company to include (column `kind` in your lists).
-company_kinds: [startup, vc]
+# Which kinds of company to include (column `kind` in your lists): startup, corporate, vc.
+# The company directory marks large or listed companies as corporate.
+company_kinds: [startup, vc, corporate]
 
 # Which work modes you accept: onsite, hybrid, remote.
 work_modes: [onsite, hybrid, remote]
@@ -141,6 +142,22 @@ output:
 # Weekly: where new companies come from. Snoopy reviews pool/new_this_week.json on Mondays
 # and promotes the good ones to wishlist.csv.
 company_search:
+  # ---- company directory (radar.directory, weekly): every company worth watching in your city
+  city: London                   # any city Wikidata knows
+  country: United Kingdom        # optional: picks the right city when the name is ambiguous
+  # Free text, your own words. Matched to Wikidata industries (and to company descriptions), so
+  # companies in these industries are found even when headquartered elsewhere.
+  industries: [fintech, artificial intelligence, climate tech]
+  industry_min_employees: 1000   # industry companies outside your country: only this size and up
+  # Pages listing companies: accelerator alumni, association members, award lists, VC portfolios.
+  # type: getro | consider (VC job boards), list (any page whose links are the companies), auto
+  directories:
+    - {name: Entrepreneur First, url: https://portfolio.joinef.com, type: auto}
+  discovery_per_run: 800         # careers pages discovered per weekly run (new companies first)
+  recheck_days: 30               # how often a company's careers page is re-discovered
+  # directory_pages_per_run: 0   # own-site careers pages the scan checks per run (default: all, once a day)
+  # directory_job_pages_per_run: 60  # job pages opened per run to read a role's location
+
   # Companies and news must mention one of these to count as "in your region".
   region_terms: [london, "united kingdom", "\\buk\\b", england]
   # VC portfolio job boards (Getro or Consider platforms). Their portfolio companies and jobs

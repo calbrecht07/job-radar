@@ -13,13 +13,15 @@ A job-search radar you hand to your AI assistant. The code finds the companies a
   │ VC portfolio boards     │ ───▶  │  job-board feeds (12 platforms)│ ─▶ │ judges: keep/stretch/cut   │
   │ funding news (RSS)      │ pool/ │  own-site careers pages        │    │ Monday: reviews new        │
   │ Common Crawl discovery  │       │  portfolio-board postings      │    │   companies for the        │
-  │ hidden-board finder     │       │ filter → queue + descriptions  │    │   wishlist                 │
+  │ hidden-board finder     │       │  directory careers pages       │    │   wishlist                 │
+  │ company directory       │       │ filter → queue + descriptions  │    │                            │
   └─────────────────────────┘       └────────────────────────────────┘    │ publishes the report page  │
         GitHub Actions                      GitHub Actions                 │ writes your notes, notifies│
                                                                            └────────────────────────────┘
 ```
 
 - **Company search** (`radar.companies`, weekly): pulls portfolio companies and jobs from VC job boards (Getro and Consider, the two platforms behind most of them), funding and expansion news from RSS feeds, job boards harvested from Common Crawl, and hidden boards for your wishlist companies. Writes `pool/`.
+- **Company directory** (`radar.directory`, weekly): every company worth watching in your city, whatever its size: Wikidata (companies headquartered in your city, and companies in your free-text industries), directory pages (accelerators, associations, award lists, VC portfolios), the portfolio pool, and companies an agent researched for you on request (`agent/RESEARCH.md`). Each company's careers page is found and classified by how its jobs can be read. Feeds join `index.csv`; companies that post only on their own website are watched as pages. The directory is shared per city in a public repo, so the next person in the same city starts with it.
 - **Opportunity search** (`radar.scan`, six times a day): reads every company's job board directly, so a role shows up within hours of posting. Reads careers pages of companies without a feed, and the portfolio-board postings of companies that only post on their own site. Loose keyword filters build the **review queue**, with each job description fetched.
 - **Snoopy** (`agent/SNOOPY.md`): the only AI step. Reads the queue, applies your rules, writes verdicts, rebuilds and publishes the report. On Mondays it reviews the week's new companies and news and promotes the good ones to your wishlist. It never opens web pages, so it never needs approvals.
 
@@ -27,7 +29,7 @@ Two repos: this one (framework, public, no personal data) and your private **dat
 
 ## Supported job-board platforms
 
-Ashby, Greenhouse, Lever, Workable, Breezy, Recruitee, Personio, SmartRecruiters, BambooHR, Teamtailor, Trakstar, Rippling. Portfolio boards: Getro, Consider. Anything else: the careers page is read for job links and watched for changes.
+Ashby, Greenhouse, Lever, Workable, Breezy, Recruitee, Personio, SmartRecruiters, BambooHR, Teamtailor, Trakstar, Rippling, Workday. Portfolio boards: Getro, Consider. Any careers page that carries schema.org job data (the format Google Jobs reads) is read directly. Anything else: the careers page is read for job links, and each matching link is opened to find its location.
 
 ## Repo layout
 
@@ -37,6 +39,11 @@ Ashby, Greenhouse, Lever, Workable, Breezy, Recruitee, Personio, SmartRecruiters
 | `sources/pages.py` | own-site careers pages: job links, change detection |
 | `sources/portfolio.py` | VC portfolio boards (Getro, Consider): companies and jobs |
 | `sources/news.py` | funding / expansion news from RSS |
+| `sources/jobdata.py` | schema.org job data in any page |
+| `sources/wikidata.py` | companies by city and by industry |
+| `sources/directories.py` | pages that list companies |
+| `radar/careers.py` | careers discovery: website → careers page → read method |
+| `radar/directory.py` | weekly company directory → shared directory, `index.csv`, pages to watch |
 | `radar/companies.py` | weekly company search → `pool/` |
 | `radar/discover.py` | Common Crawl harvest and hidden-board finder → `index.csv` |
 | `radar/scan.py` | opportunity search → `scan/`, `state/` |
@@ -44,6 +51,7 @@ Ashby, Greenhouse, Lever, Workable, Breezy, Recruitee, Personio, SmartRecruiters
 | `radar/report.py`, `radar/html.py` | the report (markdown, JSON, page) |
 | `agent/SNOOPY.md` | the agent's instructions |
 | `agent/ONBOARDING.md` | how an assistant sets a new person up |
+| `agent/RESEARCH.md` | finding companies and directories on request |
 | `agent/VAULT.md` | optional: writing results into a notes app |
 | `agent/templates/` | config, profile, rules and scheduled-task prompt templates |
 | `config.example/` | example `settings.yaml`, `wishlist.csv`, `index.csv` |
@@ -57,6 +65,8 @@ Ashby, Greenhouse, Lever, Workable, Breezy, Recruitee, Personio, SmartRecruiters
 | `wishlist.csv` | you, Snoopy | companies always checked: `name,kind,ats,slug,careers_url,source,note` |
 | `index.csv` | company search | the wider market pool (boards from discovery and portfolio links); `#name` disables a row |
 | `inbox/add.csv` | you | `ats,slug,Company` lines to add on the next company search |
+| `inbox/research.csv`, `inbox/sources.csv` | research agent | companies and directory pages found on request; processed into `inbox/done/` |
+| `pool/directory.csv`, `pool/directory.json` | company search | your copy of the city directory; run summary and companies with matching roles |
 | `profile/brief.md`, `profile/rules.md` | you | who you are; how to judge |
 | `agent/config.yaml` | you | where things are (repos, artifact, schedule, optional vault) |
 | `pool/` | company search | `companies.json` (the unified pool), `portfolio.json`, `portfolio_jobs.json`, `news.json`, `new_this_week.json` |

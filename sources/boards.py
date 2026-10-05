@@ -385,7 +385,112 @@ def rippling(slug: str) -> list[dict]:
     return out
 
 
+# ----------------------------------------------------------------- Workday
+# Slug forms (from BOARD_PATTERNS):  "<tenant>.wd<N>/<site>"       -> <tenant>.wd<N>.myworkdayjobs.com/<site>
+#                                    "wd<N>/<tenant>/<site>"        -> wd<N>.myworkdaysite.com/recruiting/<tenant>/<site>
+# Big employers list 1,000+ postings, newest first; WORKDAY_MAX caps how deep a scan pages (20 per request).
+WORKDAY_MAX = 600
+WORKDAY_DETAIL_MAX = 40          # multi-location postings whose cities are fetched one by one
+
+
+def _workday_parts(slug: str) -> tuple[str, str, str, str]:
+    """(api_base, job_url_base, tenant, site)"""
+    parts = slug.split("/")
+    if len(parts) == 3:
+        dc, tenant, site = parts
+        host = f"{dc}.myworkdaysite.com"
+        return f"https://{host}/wday/cxs/{tenant}/{site}", f"https://{host}/recruiting/{tenant}/{site}", tenant, site
+    if len(parts) == 2:
+        host_part, site = parts
+        tenant = host_part.split(".")[0]
+        host = f"{host_part}.myworkdayjobs.com"
+        return f"https://{host}/wday/cxs/{tenant}/{site}", f"https://{host}/{site}", tenant, site
+    raise NotFound(f"workday slug {slug!r}: expected tenant.wdN/site or wdN/tenant/site")
+
+
+def _workday_posted(s: str | None) -> str | None:
+    """'Posted Today' / 'Posted Yesterday' / 'Posted 3 Days Ago' / 'Posted 30+ Days Ago' -> ISO date."""
+    from datetime import timedelta
+    s = (s or "").lower()
+    today = datetime.now(timezone.utc).date()
+    if "today" in s:
+        return today.isoformat()
+    if "yesterday" in s:
+        return (today - timedelta(days=1)).isoformat()
+    m = re.search(r"(\d+)\+? days? ago", s)
+    return (today - timedelta(days=int(m.group(1)))).isoformat() if m else None
+
+
+def _post(url: str, body: dict):
+    r = requests.post(url, json=body, headers={**UA, "Accept": "application/json"}, timeout=TIMEOUT)
+    if r.status_code in (404, 410, 422):
+        raise NotFound(url)
+    r.raise_for_status()
+    return r.json()
+
+
+def workday_detail(slug: str, external_path: str) -> dict:
+    api, _, _, _ = _workday_parts(slug)
+    return _get(api + external_path).get("jobPostingInfo") or {}
+
+
+def workday_description(url: str) -> str | None:
+    """Plain-text description for a Workday job URL (its page is a JavaScript app), or None."""
+    hit = next((s for a, s in detect_boards(url) if a == "workday"), None)
+    if not hit:
+        return None
+    _, job_base, _, _ = _workday_parts(hit)
+    if not url.startswith(job_base):
+        return None
+    return strip_html(workday_detail(hit, url[len(job_base):].split("?")[0]).get("jobDescription"))
+
+
+def workday(slug: str) -> list[dict]:
+    import time
+    api, job_base, _, _ = _workday_parts(slug)
+    out, offset, total = [], 0, None
+    while offset < WORKDAY_MAX:
+        data = _post(api + "/jobs", {"appliedFacets": {}, "limit": 20, "offset": offset, "searchText": ""})
+        if total is None:
+            total = data.get("total") or 0
+        items = data.get("jobPostings") or []
+        for j in items:
+            path = j.get("externalPath") or ""
+            loc = j.get("locationsText") or ""
+            remote = (j.get("remoteType") or "").lower()
+            out.append({
+                "id": (j.get("bulletFields") or [path])[0],
+                "title": j.get("title", ""),
+                "locations": [loc] if loc else [],
+                "remote": remote == "remote" or "remote" in loc.lower(),
+                "workplace": remote if remote in ("remote", "hybrid") else ("onsite" if remote in ("on-site", "on site") else ""),
+                "url": job_base + path,
+                "published": _workday_posted(j.get("postedOn")),
+                "department": "",
+                "salary": "",
+                "description": "",
+                "_path": path,
+            })
+        offset += len(items)
+        if not items or offset >= total:
+            break
+        time.sleep(0.3)
+    # "3 Locations" says nothing: ask the posting itself (bounded)
+    multi = [p for p in out if re.fullmatch(r"\d+ locations", (p["locations"] or [""])[0].lower())][:WORKDAY_DETAIL_MAX]
+    for p in multi:
+        try:
+            info = workday_detail(slug, p["_path"])
+            p["locations"] = [x for x in [info.get("location")] + list(info.get("additionalLocations") or []) if x]
+            p["description"] = strip_html(info.get("jobDescription"))
+        except Exception:
+            pass
+    for p in out:
+        p.pop("_path", None)
+    return out
+
+
 ADAPTERS = {
+    "workday": workday,
     "bamboohr": bamboohr,
     "teamtailor": teamtailor,
     "trakstar": trakstar,
@@ -425,14 +530,17 @@ BOARD_PATTERNS = [
     ("teamtailor", r"([\w-]+)\.teamtailor\.com"),
     ("trakstar", r"([\w-]+)\.hire\.trakstar\.com"),
     ("rippling", r"ats\.rippling\.com/([\w-]+)"),
+    # Workday: multi-part slugs (see workday()); a locale segment (en-US) may sit before the site
+    ("workday", r"([\w-]+\.wd\d+)\.myworkdayjobs\.com/(?:wday/cxs/[\w-]+/)?(?:[a-z]{2}-[A-Z]{2}/)?([A-Za-z][\w-]*)"),
+    ("workday", r"(wd\d+)\.myworkdaysite\.com/(?:[a-z]{2}-[A-Z]{2}/)?recruiting/([\w-]+)/([\w-]+)"),
     # recognised but not supported by a feed adapter (reported, checked by page)
     ("pinpoint", r"([\w-]+)\.pinpointhq\.com"),
-    ("workday", r"([\w-]+)\.wd\d+\.myworkdayjobs\.com"),
     ("hibob", r"([\w-]+)\.careers\.hibob\.com"),
     ("dover", r"app\.dover\.com/jobs/([\w-]+)"),
 ]
 _IGNORE_SLUGS = {"www", "api", "app", "jobs", "careers", "embed", "j", "static", "assets", "cdn", "js",
                  "staticfe", "resources", "bhrpendo", "support", "help", "marketing"}
+_WORKDAY_NOT_SITES = {"wday", "job", "login", "recruiting", "userhome", "candidatehome"}
 
 
 def _norm(s: str) -> str:
@@ -441,6 +549,9 @@ def _norm(s: str) -> str:
 
 def plausible(company: str, slug: str, url: str = "") -> bool:
     """Does a board slug plausibly belong to this company (and not e.g. a VC's portfolio company)?"""
+    if "/" in slug:                                   # Workday: judge by the tenant
+        parts = slug.split("/")
+        slug = parts[1] if len(parts) == 3 else parts[0].split(".")[0]
     sl = _norm(re.sub(r"[-_](careers?|jobs|hq|inc|ltd|\d+)$", "", slug, flags=re.I))
     if len(sl) < 3:
         return False
@@ -456,9 +567,10 @@ def detect_boards(html_text: str) -> list[tuple[str, str]]:
     """Job boards referenced in a careers page's HTML: [(ats, slug)], supported ones first."""
     found = []
     for ats_name, pat in BOARD_PATTERNS:
-        for m in re.finditer(pat, html_text or "", re.I):
-            slug = m.group(1).strip().rstrip(".")
-            if slug.lower() in _IGNORE_SLUGS:
+        for m in re.finditer(pat, html_text or "", re.I if ats_name != "workday" else 0):
+            parts = [g.strip().rstrip(".") for g in m.groups()]
+            slug = "/".join(parts)
+            if parts[-1].lower() in _IGNORE_SLUGS or parts[-1].lower() in _WORKDAY_NOT_SITES:
                 continue
             if (ats_name, slug) not in found:
                 found.append((ats_name, slug))

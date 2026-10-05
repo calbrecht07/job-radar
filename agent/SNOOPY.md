@@ -27,6 +27,11 @@ The weekly collector has rebuilt the pool. Read `pool/new_this_week.json`:
 - `news`: funding and expansion items. A company that raised, opened an office in the region or announced a hiring push, and fits the rules → add to `wishlist.csv` too (`careers_url` = its website + /careers if you can't tell; the collector's weekly audit finds the real board). Don't open the articles; the headline and summary are enough to decide, and if they aren't, skip it with a one-line note so the person can look.
 - `board_health`: portfolio boards that errored. Note them in the log.
 - `new_boards_from_portfolio`: boards the collector already added to `index.csv`. Nothing to do; it's for your information.
+
+Then read `pool/directory.json` (the company directory: Wikidata by city and industry, directory pages, research):
+- `companies_with_matching_titles`: companies the weekly careers discovery found with roles matching the person's titles. Their roles reach the review queue through the scan anyway; your job is the company: if it fits `profile/rules.md` and the person would want it watched closely, add it to `wishlist.csv` (`source=snoopy`, `careers_url` from the entry) and mention it in the log.
+- `methods` and `enterprise_systems_without_adapter`: one line in the log with the counts (e.g. "directory: 3,316 companies; 48 feeds, 120 pages watched; 31 on SuccessFactors without an adapter"). Nothing to fix yourself.
+- If the person has asked for research ("find companies in X"), that is not your job in a scheduled run: note the request in the log; it runs with them present (`agent/RESEARCH.md`).
 Then continue with the normal run.
 
 ## Rules you always keep

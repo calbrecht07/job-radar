@@ -18,6 +18,7 @@ from pathlib import Path
 import requests
 
 from sources import boards as ats
+from sources import jobdata
 
 UA = {"User-Agent": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/128.0 Safari/537.36 job-radar/1.0"}
 GONE = re.compile(
@@ -54,8 +55,8 @@ def check_via_feed(url: str) -> tuple[bool, str] | None:
     key = f"{a}:{slug.lower()}"
     if key not in _FEED_CACHE:
         try:
-            _FEED_CACHE[key] = {p.get("url", "").rstrip("/") for p in ats.fetch(a, slug)} | \
-                               {str(p.get("id")) for p in ats.fetch(a, slug)}
+            posts = ats.fetch(a, slug)
+            _FEED_CACHE[key] = {p.get("url", "").rstrip("/") for p in posts} | {str(p.get("id")) for p in posts}
         except ats.NotFound:
             _FEED_CACHE[key] = set()
         except Exception as e:
@@ -105,6 +106,14 @@ def check_url(url: str, title: str = "") -> tuple[bool, str]:
     m = GONE_STRONG.search(text)          # explicit closed-job notices count anywhere (WTTJ puts it mid-page)
     if m:
         return False, f'page says "{m.group(0)[:60]}"'
+    # schema.org JobPosting data: a passed closing date means closed; a future one vouches for a page whose
+    # visible text needs JavaScript. Without a closing date it proves nothing (stale blocks exist).
+    data = [p for p in jobdata.postings(r.text, url) if not title or _title_shown(title, p["title"])]
+    if data and all(jobdata.expired(p) for p in data):
+        return False, f"job data says it closed on {str(data[0]['valid_through'])[:10]}"
+    open_until = next((p["valid_through"] for p in data if p.get("valid_through")), None)
+    if (len(text) < 400 or (title and not _title_shown(title, text))) and open_until:
+        return True, f"ok (job data: open until {str(open_until)[:10]})"
     if len(text) < 400:
         return True, "unverified: page needs JavaScript"
     if title and not _title_shown(title, text):   # visible text only: meta tags do not count

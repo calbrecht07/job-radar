@@ -7,7 +7,7 @@ You are helping someone set up their own job radar. Work through this with them,
 1. **Roles.** Which job titles or role families do you want? Which do you never want (e.g. sales quota roles, internships, pure engineering)?
 2. **Where.** Which city for on-site/hybrid roles? Is remote OK, and from which regions (e.g. UK, EU, anywhere)? Any countries to exclude?
 3. **Work mode.** On-site, hybrid, remote, or any mix?
-4. **Company types.** Startups/scaleups, VC firms, both? Which sectors? Any kinds of company to skip?
+4. **Company types and industries.** Startups/scaleups, established corporates, VC firms, any mix? Which industries, in their own words (e.g. "fintech, space, climate tech")? Any kinds of company to skip?
 5. **Hard limits.** Years of experience you won't stretch to; visa or work-permit constraints; languages you don't speak; anything else that is an automatic no.
 6. **Wishlist.** Companies you already want watched (names are enough; the collector finds their job boards).
 7. **VC portfolio boards.** Which VCs' job boards should feed the company pool? (Give sensible defaults for their region if they don't know.)
@@ -19,7 +19,9 @@ You are helping someone set up their own job radar. Work through this with them,
 
 Ask them to create a **private, empty** GitHub repo and give the agent app access to it. Then:
 
-- `settings.yaml`: start from `config.example/settings.yaml`; translate their answers into `roles`, `locations`, `work_modes`, `company_kinds`, `drops`, `flags`, `company_search`.
+- `settings.yaml`: start from `config.example/settings.yaml`; translate their answers into `roles`, `locations`, `work_modes`, `company_kinds`, `drops`, `flags`, `company_search` (set `city`, `country` and their free-text `industries`: these drive the company directory).
+- Company directory: the shared public directory (`job-radar-directory`, one folder per city) is checked out by the `companies` workflow. If their city has no folder yet, the first run creates it. Optionally add a repo secret `DIRECTORY_TOKEN` (a token with write access to the directory repo) so what their runs learn is shared back.
+- Offer research (`agent/RESEARCH.md`): "Want me to find companies and directories in your industries now?" Do it with them present; it seeds `inbox/research.csv` and `inbox/sources.csv`.
 - `wishlist.csv`: their companies (`name,kind,ats,slug,careers_url,source,note`; leave `ats`/`slug` empty if unknown, set `source=seed`).
 - `index.csv`: header only.
 - `profile/brief.md`: who they are, in the shape of `agent/templates/brief.md`. `profile/rules.md`: their judging rules, from `agent/templates/rules.md`.

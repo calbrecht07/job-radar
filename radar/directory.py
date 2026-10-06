@@ -50,9 +50,9 @@ NOW = datetime.now(timezone.utc)
 TODAY = NOW.date().isoformat()
 
 COLUMNS = ["key", "name", "website", "kind", "industries", "employees", "wikidata", "sources", "careers_url",
-           "method", "board", "enterprise", "checked", "first_seen", "error"]
+           "method", "board", "enterprise", "checked", "first_seen", "error", "rendered"]
 SOURCE_COLUMNS = ["url", "name", "type", "industries", "added", "added_by"]
-WATCH_METHODS = ("page", "jobdata", "enterprise")
+WATCH_METHODS = ("page", "jobdata", "enterprise", "rendered")
 
 
 def slug(s: str) -> str:
@@ -292,6 +292,8 @@ def main(argv=None):
     ap.add_argument("--minutes", type=int, default=None, help="time budget for discovery (default discovery_minutes or 90)")
     ap.add_argument("--no-wikidata", action="store_true")
     ap.add_argument("--no-discovery", action="store_true", help="only collect companies")
+    ap.add_argument("--no-browser", action="store_true", help="skip the browser pass")
+    ap.add_argument("--browser-minutes", type=int, default=None, help="time budget for the browser pass (default browser_minutes or 60)")
     args = ap.parse_args(argv)
     data = Path(args.data).resolve()
     cfg = yaml.safe_load((data / "settings.yaml").read_text()) or {}
@@ -392,6 +394,55 @@ def main(argv=None):
     write_directory(dpath, directory)
     write_directory(local_copy, directory)
 
+    # ---- browser pass: careers pages plain requests couldn't read (JavaScript job lists, simple bot checks)
+    rpath = data / "pool/rendered_jobs.json"
+    rendered_jobs: dict = load_json(rpath, {})
+    from radar import browser as br
+    if not (args.no_browser or args.no_discovery) and cs.get("browser", True) is not False and br.available():
+        from radar.scan import locate_html
+        wanted = lambda t: flt.title_ok(t or "", "startup")
+        locate = lambda html, url: {k: v for k, v in locate_html(html, url, flt).items() if k in ("locations", "remote")}
+        rdue = [r for r in directory.values() if r.get("method") in careers.RENDER_METHODS and r.get("website")
+                and (not r.get("rendered") or r["rendered"] < stale_before)]
+        rdue.sort(key=lambda r: priority(r, new_keys))
+        rbudget = 60 * (args.browser_minutes if args.browser_minutes is not None else int(cs.get("browser_minutes") or 60))
+        t1, rdone, rfeeds = time.time(), 0, 0
+        try:
+            with br.Browser() as b:
+                for r in rdue:
+                    if time.time() - t1 > rbudget:
+                        log(f"browser: time budget reached, {len(rdue) - rdone} companies left for the next run")
+                        break
+                    try:
+                        prof = careers.render_discover({"name": r["name"], "website": r["website"]},
+                                                       {k: r.get(k, "") for k in ("careers_url", "method", "board", "enterprise", "error")},
+                                                       b, wanted=wanted, locate=locate)
+                    except Exception as e:
+                        prof = {"rendered": TODAY, "error": f"render crash: {type(e).__name__}"}
+                    rdone += 1
+                    for f in ("careers_url", "method", "board", "enterprise", "error", "rendered"):
+                        if f in prof:
+                            r[f] = prof.get(f) or ""
+                    if r["method"] == "rendered":
+                        rendered_jobs[r["key"]] = {"at": TODAY, "jobs": prof.get("jobs") or []}
+                        m = [j for j in prof.get("jobs") or [] if wanted(j.get("title")) and (j.get("locations") or j.get("remote"))
+                             and flt.evaluate(j, {"kind": r.get("kind") or "startup"}).keep]
+                        if m:
+                            found_roles.append({"company": r["name"], "key": r["key"], "method": "rendered", "careers_url": r["careers_url"],
+                                                "kind": r["kind"], "roles": m[:5], "matching": len(m)})
+                    else:
+                        rendered_jobs.pop(r["key"], None)
+                        rfeeds += r["method"] == "feed"
+                    if rdone % 25 == 0:
+                        write_directory(dpath, directory); write_directory(local_copy, directory); save_json(rpath, rendered_jobs)
+        except Exception as e:
+            log(f"browser unavailable: {type(e).__name__}: {str(e)[:120]}")
+        log(f"browser: {rdone} companies in {round(time.time() - t1)} s, {rfeeds} became job-board feeds, "
+            f"{sum(1 for r in directory.values() if r.get('method') == 'rendered')} read as rendered pages")
+        write_directory(dpath, directory)
+        write_directory(local_copy, directory)
+    save_json(rpath, {k: v for k, v in rendered_jobs.items() if k in directory and directory[k].get("method") == "rendered"})
+
     # ---- the person's side: feeds into index.csv, pages for the scan
     wishlist, index = read_csv(data / "wishlist.csv"), read_csv(data / "index.csv")
     known = {(r.get("ats", "").lower(), r.get("slug", "").lower()) for r in wishlist + index}
@@ -407,7 +458,8 @@ def main(argv=None):
                 new_index.append({"name": r["name"], "kind": r["kind"], "ats": a, "slug": s, "added": TODAY, "source": "directory"})
     append_rows(data / "index.csv", new_index, ["name", "kind", "ats", "slug", "added", "source"])
     watch = [{"key": r["key"], "name": r["name"], "kind": r["kind"], "careers_url": r["careers_url"], "method": r["method"],
-              "enterprise": r["enterprise"]}
+              "enterprise": r["enterprise"],
+              **({"jobs": (rendered_jobs.get(r["key"]) or {}).get("jobs") or []} if r["method"] == "rendered" else {})}
              for r in directory.values() if r["method"] in WATCH_METHODS and r["careers_url"] and norm(r["name"]) not in known_names]
     save_json(data / "pool/directory_pages.json", sorted(watch, key=lambda w: w["name"].lower()))
 

@@ -168,7 +168,12 @@ def fetch_one(c: dict):
 
 def directory_page(d: dict):
     """Current jobs on a directory company's careers page: schema.org job data if the page has it, else the
-    posting links on it. -> (d, [posting], error)"""
+    posting links on it. Pages that need a browser come with their jobs from the weekly browser pass.
+    -> (d, [posting], error)"""
+    if d.get("jobs") is not None:
+        return d, [{"title": j.get("title", ""), "url": j.get("url", ""), "locations": j.get("locations") or [],
+                    "remote": j.get("remote"), "description": "", "_flags": ["found by the weekly browser check"]}
+                   for j in d["jobs"] if j.get("url")], None
     try:
         r = pages.requests.get(d["careers_url"], headers=careers.HEADERS, timeout=25)
         if r.status_code >= 400:
@@ -182,9 +187,29 @@ def directory_page(d: dict):
         return d, [], type(e).__name__
 
 
+def locate_html(html: str, url: str, flt: Filters) -> dict:
+    """Where a job page says the role is: its job data if present, else the page text naming the person's
+    city or a remote region. {} when it names neither."""
+    data = jobdata.postings(html, url)
+    if data:
+        best = data[0]
+        return {"locations": best["locations"], "remote": best["remote"], "workplace": best["workplace"],
+                "description": best["description"], "published": best.get("published"),
+                "_flags": ["location from the job page's data"]}
+    text = "\n".join(pages.page_text(html))
+    m = next((rx.search(text) for rx in flt.local if rx.search(text)), None)
+    if m:
+        return {"locations": [m.group(0)], "description": text[:7000], "_flags": ["location read from the job page text: check it"]}
+    if re.search(r"\b(fully )?remote\b", text, re.I):
+        m = next((rx.search(text) for rx in flt.allowed if rx.search(text)), None)
+        return {"remote": True, "locations": [f"Remote - {m.group(0)}"] if m else ["Remote"], "description": text[:7000],
+                "_flags": ["remote read from the job page text: check it"]}
+    return {"description": text[:7000]}
+
+
 def located(p: dict, flt: Filters) -> dict:
-    """Open a posting found as a link and read where it is: its job data if present, else the page text.
-    A page that names neither the person's city nor a remote region is left without a location (dropped)."""
+    """Open a posting found as a link and read where it is (locate_html). A page that names neither the
+    person's city nor a remote region is left without a location (dropped)."""
     p = {**p, "_flags": []}
     try:
         r = pages.requests.get(p["url"], headers=careers.HEADERS, timeout=25)
@@ -192,22 +217,7 @@ def located(p: dict, flt: Filters) -> dict:
             return p
     except Exception:
         return p
-    data = jobdata.postings(r.text, p["url"])
-    if data:
-        best = data[0]
-        return {**p, "locations": best["locations"], "remote": best["remote"], "workplace": best["workplace"],
-                "description": best["description"] or p.get("description", ""), "published": best.get("published"),
-                "_flags": ["location from the job page's data"]}
-    text = "\n".join(pages.page_text(r.text))
-    p["description"] = text[:7000]
-    m = next((rx.search(text) for rx in flt.local if rx.search(text)), None)
-    if m:
-        return {**p, "locations": [m.group(0)], "_flags": ["location read from the job page text: check it"]}
-    if re.search(r"\b(fully )?remote\b", text, re.I):
-        m = next((rx.search(text) for rx in flt.allowed if rx.search(text)), None)
-        return {**p, "remote": True, "locations": [f"Remote - {m.group(0)}"] if m else ["Remote"],
-                "_flags": ["remote read from the job page text: check it"]}
-    return p
+    return {**p, **locate_html(r.text, p["url"], flt)}
 
 
 def candidate(c: dict, p: dict, v, key: str, max_desc: int) -> dict:

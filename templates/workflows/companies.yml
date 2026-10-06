@@ -57,6 +57,8 @@ jobs:
         run: set -o pipefail; PYTHONPATH=.engine python -m radar.discover --data . --commoncrawl --max-pages 8 --max-probe 4000 2>&1 | tee -a pool/companies.log
       - name: Portfolio boards, news, unified pool
         run: set -o pipefail; PYTHONPATH=.engine python -m radar.companies --data . 2>&1 | tee -a pool/companies.log
+      - name: Headless browser for careers pages that need JavaScript
+        run: pip install -q -r .engine/requirements-browser.txt && python -m playwright install --with-deps chromium > /dev/null
       - name: Company directory (Wikidata, directories, research) and careers discovery
         run: set -o pipefail; PYTHONPATH=.engine python -m radar.directory --data . --directory .directory 2>&1 | tee -a pool/companies.log
       - name: Repair job boards that stopped working

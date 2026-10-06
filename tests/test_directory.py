@@ -256,3 +256,38 @@ def test_repair_moves_disables_and_adds(tmp_path):
     assert "#Gone Co,startup,lever,goneco" in idx and "#Off Co" in idx
     assert "gone.co,Gone Co,https://gone.co,\n" in (d / "pool/directory.csv").read_text()
     assert {e["action"] for e in json.loads((d / "scan/repairs.json").read_text())} == {"moved", "disabled", "board added"}
+
+
+class FakeBrowser:
+    def __init__(self, pages):
+        self.pages, self.seen = pages, []
+
+    def render(self, url):
+        self.seen.append(url)
+        return {"status": 200, "final_url": url, "html": "", "requests": [], "json": [], "error": "", **self.pages.get(url, {})}
+
+
+def test_render_finds_board_from_network_calls():
+    b = FakeBrowser({"https://acme.com/careers": {"html": "<div id=app></div>",
+                                                  "requests": ["https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true"]}})
+    prof = careers.render_discover({"name": "Acme", "website": "https://acme.com"},
+                                   {"careers_url": "https://acme.com/careers", "method": "js_only"}, b)
+    assert prof["method"] == "feed" and prof["board"] == "greenhouse:acme"
+
+
+def test_render_reads_json_and_locates_wanted_roles():
+    from radar.browser import jobs_from_json
+    api = {"jobs": [{"jobId": i, "title": t, "groupedLocation": loc, "url": f"/jobs/{i}"} for i, (t, loc) in enumerate(
+        [("Chief of Staff", "London, United Kingdom"), ("Software Engineer", "Berlin"), ("Product Manager", "")] * 3)]}
+    nav = {"items": [{"title": "About us", "url": "/about"}, {"title": "Partner Overview", "url": "/partners"}]}
+    got = jobs_from_json([("https://x/api/nav", nav), ("https://x/api/jobs", api)], "https://acme.com/careers")
+    assert len(got) == 9 and got[0]["locations"] == ["London, United Kingdom"] and got[0]["url"] == "https://acme.com/jobs/0"
+    b = FakeBrowser({"https://acme.com/careers": {"html": "<div></div>", "json": [("https://x/api/jobs", api)]},
+                     "https://acme.com/jobs/2": {"html": "<p>Product Manager, based in London</p>"}})
+    wanted = lambda t: "product" in t.lower() or "chief" in t.lower()
+    locate = lambda html, url: {"locations": ["London"]} if "London" in html else {}
+    prof = careers.render_discover({"name": "Acme", "website": "https://acme.com"},
+                                   {"careers_url": "https://acme.com/careers", "method": "no_jobs"}, b, wanted, locate)
+    assert prof["method"] == "rendered"
+    pm = next(j for j in prof["jobs"] if j["url"] == "https://acme.com/jobs/2")
+    assert pm["locations"] == ["London"] and "https://acme.com/jobs/1" not in b.seen      # unwanted titles never opened

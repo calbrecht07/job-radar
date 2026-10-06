@@ -286,3 +286,77 @@ def _discover(company: dict) -> dict:
     elif last:
         prof["method"] = "js_only" if len(pages.page_text(last)) < 25 else "no_jobs"
     return prof
+
+
+# ------------------------------------------------------------ browser pass
+RENDER_METHODS = ("js_only", "no_jobs", "blocked", "none")
+
+
+def render_discover(company: dict, prof: dict, browser, wanted=None, locate=None, max_job_pages: int = 12) -> dict:
+    """Second pass with a real browser for companies plain requests couldn't read (RENDER_METHODS).
+    In order of preference: a job board the page loads (-> feed), jobs in the page's own data calls, posting
+    links in the rendered page. Titles that pass `wanted(title)` but carry no location get their job page
+    rendered and `locate(html, url)` -> {locations, remote}. Returns the updated profile; method "rendered"
+    keeps its jobs in profile["jobs"] for the scan."""
+    from radar.browser import jobs_from_json
+    name, site = company.get("name", ""), company.get("website", "")
+    if site and not site.startswith("http"):
+        site = "https://" + site
+    out = {**prof, "rendered": datetime.now(timezone.utc).date().isoformat()}
+    start = prof.get("careers_url") or site
+    if not start:
+        return out
+    pages = [browser.render(start)]
+    if not pages[0]["html"]:
+        out["error"] = f"render: {pages[0]['error'] or pages[0]['status']}"
+        return out
+    if not prof.get("careers_url"):                         # find the careers page in the rendered homepage
+        cl = career_links(pages[0]["html"], pages[0]["final_url"])
+        if cl:
+            pages.append(browser.render(cl[0]))
+    last = pages[-1]
+
+    def found(pg):
+        return own_jobs(pg["html"], pg["final_url"], name) or jobs_from_json(pg["json"], pg["final_url"]) \
+            or boards.detect_boards(pg["html"] + "\n" + "\n".join(pg["requests"]))
+    if not found(last):                                     # the job list one page deeper, or on another site
+        for nxt in next_links(last["html"], last["final_url"])[:1]:
+            pages.append(browser.render(nxt))
+    last = pages[-1]
+    if last["html"]:
+        out["careers_url"] = last["final_url"]
+    blob = "\n".join(p["html"] + "\n" + "\n".join(p["requests"]) for p in pages)
+
+    for a, s in boards.detect_boards(blob):
+        if a in boards.ADAPTERS and boards.plausible(name, s, site):
+            out.update(method="feed", board=f"{a}:{s}", jobs=[], error="")
+            return out
+    data = []
+    for p in pages:
+        data += [x for x in jobdata.postings(p["html"], p["final_url"]) if not jobdata.expired(x)]
+    from_json = max((jobs_from_json(p["json"], p["final_url"]) for p in pages), key=len, default=[])
+    links = max(([{"title": j["title"], "url": j["url"], "locations": [], "remote": None}
+                  for j in own_jobs(p["html"], p["final_url"], name)] for p in pages), key=len, default=[])
+    located_json = sum(1 for j in from_json if j["locations"])
+    if data:
+        jobs = [{"title": x["title"], "url": x["url"], "locations": x["locations"], "remote": x["remote"]} for x in data]
+    elif from_json and (located_json * 2 >= len(from_json) or len(from_json) > len(links)):
+        jobs = from_json
+    else:
+        jobs = links
+    if not jobs:
+        ent = enterprise(blob)
+        if ent:
+            out.update(method="enterprise", enterprise=ent[0])
+        return out
+    # where are the roles that matter? open their pages (bounded)
+    opened = 0
+    for j in jobs:
+        if opened >= max_job_pages or j.get("locations") or not j.get("url") or (wanted and not wanted(j["title"])):
+            continue
+        opened += 1
+        pg = browser.render(j["url"])
+        if pg["html"] and locate:
+            j.update({k: v for k, v in locate(pg["html"], j["url"]).items() if v})
+    out.update(method="rendered", jobs=jobs[:500], error="")
+    return out

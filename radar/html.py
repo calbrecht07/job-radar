@@ -168,13 +168,22 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
     "Updated " + (D.updated||"").replace("T"," ").slice(0,16) + " UTC · " + D.boards + " job boards · " + D.watchlist_size + " watchlist companies";
 
   const all = D.watchlist_roles.concat(D.market_roles);
-  const opts = (sel, label, values) => {
+  const opts = (sel, label, values, noun) => {
     const counts = {}; values.forEach(v => counts[v] = (counts[v]||0) + 1);
+    if (state[sel.id] !== "all" && !(state[sel.id] in counts)) counts[state[sel.id]] = 0;   // keep the chosen option
     const keys = Object.keys(counts).sort((a,b) => (a==="Other"||a==="Unknown") - (b==="Other"||b==="Unknown") || counts[b]-counts[a]);
-    sel.innerHTML = `<option value="all">${esc(label)}</option>` + keys.map(k => `<option value="${esc(k)}">${esc(k)} (${counts[k]})</option>`).join("");
+    sel.innerHTML = `<option value="all">${esc(label)}</option>` + keys.map(k =>
+      `<option value="${esc(k)}">${esc(k)} · ${counts[k]} role${counts[k]===1?"":"s"}</option>`).join("");
+    sel.title = "Counts are roles " + noun;
   };
-  opts(document.getElementById("fam"), "All role types", all.concat(ARCH).map(r => r.family || "Other"));
-  opts(document.getElementById("ind"), "All industries", all.concat(ARCH).flatMap(r => r.industries && r.industries.length ? r.industries : ["Unknown"]));
+  const famOf = r => r.family || "Other", indOf = r => r.industries && r.industries.length ? r.industries : ["Unknown"];
+  function fillOptions(){
+    const src = state.view === "archive" ? ARCH : all.filter(r => !isHidden(r));
+    const noun = state.view === "archive" ? "in the archive" : "open";
+    opts(document.getElementById("fam"), "All role types", src.map(famOf), noun);
+    opts(document.getElementById("ind"), "All industries", src.flatMap(indOf), noun);
+    document.getElementById("fam").value = state.fam; document.getElementById("ind").value = state.ind;
+  }
   const n = f => all.filter(f).length;
   const withRoles = new Set(D.watchlist_roles.map(r => r.company)).size;
   document.getElementById("stats").innerHTML = [
@@ -247,7 +256,7 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
     document.getElementById("watchCount").textContent = w.length + " roles";
     document.getElementById("marketCount").textContent = m.length + " roles";
     document.querySelectorAll(".chip").forEach(b => b.setAttribute("aria-pressed", String(state[b.dataset.f] === b.dataset.v)));
-    document.getElementById("fam").value = state.fam; document.getElementById("ind").value = state.ind;
+    fillOptions();
     document.body.classList.toggle("view-archive", state.view === "archive");
     document.getElementById("statusChips").hidden = state.view !== "archive";
     if (state.view === "archive") {
@@ -264,8 +273,7 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
   document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () => { state[b.dataset.f] = b.dataset.v; archLimit = 150; render(); }));
   document.getElementById("q").addEventListener("input", e => { state.q = e.target.value; render(); });
   ["fam","ind"].forEach(id => document.getElementById(id).addEventListener("change", e => { state[id] = e.target.value; render(); }));
-  if (![...document.getElementById("fam").options].some(o => o.value === state.fam)) state.fam = "all";
-  if (![...document.getElementById("ind").options].some(o => o.value === state.ind)) state.ind = "all";
+
 
   // Hide / restore: kept in the artifact's db, so it survives every republish. Without db (a saved copy,
   // the notes vault) the buttons stay hidden and the page works read-only.
@@ -319,11 +327,9 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
   const A = [];
   // only what needs the person goes first; radar housekeeping folds into one line each
   (D.unverified_roles||[]).forEach(r => A.push(`<p class="warn">Could not verify the link (page needs JavaScript), check before applying: <b>${esc(r.company)}</b> · <a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a> · ${FITL[fitKey(r)]}${r.note ? " · " + esc(r.note) : ""}</p>`));
-  const F = D.failing||[], AU = D.audit||[];
-  if (F.length) A.push(`<details><summary>${F.length} job board${F.length>1?"s":""} not answering. The weekly repair switches each company to its current board, or stops checking it.</summary>
-    <p class="sub">${F.map(f => esc(f.company) + " (" + esc(f.board) + ")").join(", ")}</p></details>`);
-  if (AU.length) A.push(`<details><summary>${AU.length} compan${AU.length>1?"ies":"y"} whose careers page links to a different job board. The weekly repair records it.</summary>
-    <p class="sub">${AU.map(a => esc(a.company) + ": " + a.found_on_page.map(esc).join(", ")).join("; ")}</p></details>`);
+  // board problems are the radar's own housekeeping (weekly repair); the page only says how healthy it is
+  const nFail = (D.failing||[]).length, nBoards = D.boards || 0;
+  if (nBoards) A.push(`<p class="sub">${(nBoards - nFail).toLocaleString()} of ${nBoards.toLocaleString()} job boards answering${nFail ? "; the weekly repair handles the rest" : ""}.</p>`);
   if (D.verified_at) A.push(`<p class="sub">Every listed link was confirmed live at ${esc((D.verified_at||"").replace("T"," ").slice(0,16))} UTC; ${D.closed_count||0} closed postings removed.</p>`);
   if (D.hidden_cut) A.push(`<p class="sub">${D.hidden_cut} reviewed roles were cut and are hidden.</p>`);
   document.getElementById("attnList").innerHTML = A.join("") || `<p class="empty">All job boards are answering.</p>`;

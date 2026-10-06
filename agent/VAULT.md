@@ -3,7 +3,7 @@
 Only when `agent/config.yaml` in the data repo has a `vault` section, and the run has access to the person's computer. All paths are relative to `vault.root`.
 
 **Vault → repo** (first, so this run uses the latest settings)
-1. `vault.settings_note`: take the ```yaml block, validate it (`PYTHONPATH=<framework> python -c "import yaml; from radar.filters import Filters; Filters(yaml.safe_load(open('c.yaml')))"`), and if valid and changed, replace `settings.yaml` in the data repo. If invalid: keep the old file and log "Settings note has an error: <message>".
+1. `vault.settings_note`: take the ```yaml block, validate it (`PYTHONPATH=<framework> python -c "import yaml; from radar.filters import Filters; Filters(yaml.safe_load(open('c.yaml')))"`), and if valid and changed, write it to `settings.yaml` in the data repo, **keeping any top-level section the note lacks** (take it from the current `settings.yaml`; a note written before a section existed must never delete it, e.g. `company_search`). Log which sections were kept from the repo so the person can add them to the note. If invalid: keep the old file and log "Settings note has an error: <message>".
 2. `vault.profile_files`: copy each listed note to its `profile/` target when changed.
 3. `vault.wishlist_note`: companies struck through or marked removed → prefix their `wishlist.csv` row name with `#`. Companies in the note but not in `wishlist.csv` → add a row.
 

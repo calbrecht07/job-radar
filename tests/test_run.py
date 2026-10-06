@@ -97,3 +97,23 @@ def test_two_runs(tmp_path, monkeypatch):
     from radar import report
     r = report.build(tmp_path, skip_verify=True)
     assert not r["market_roles"] and r["hidden_cut"] == 1
+
+
+def test_first_fetch_window_for_discovered_companies(tmp_path, monkeypatch):
+    """A board the radar discovered gets the market window (45 days) on its first fetch; a board the person
+    listed by hand keeps first_fetch_max_age_days (21)."""
+    from datetime import datetime, timedelta, timezone
+    monkeypatch.setenv("RADAR_SKIP_VERIFY", "1")
+    shutil.copy(EX / "settings.yaml", tmp_path / "settings.yaml")
+    (tmp_path / "wishlist.csv").write_text("name,kind,ats,slug,careers_url,source,note\n")
+    (tmp_path / "index.csv").write_text("name,kind,ats,slug,added,source\n"
+                                        "Found Co,corporate,ashby,found,2026-10-05,directory\n"
+                                        "Known Co,startup,ashby,known,2026-10-05,manual\n")
+    month_ago = (datetime.now(timezone.utc) - timedelta(days=30)).date().isoformat()
+    post = lambda slug: [{"id": "1", "title": "Chief of Staff", "locations": ["London"], "remote": False, "workplace": "",
+                          "url": f"https://jobs.ashbyhq.com/{slug}/1", "published": month_ago, "description": "x"}]
+    with mock.patch.object(ats, "fetch", lambda a, s: post(s)):
+        assert run.main(["--data", str(tmp_path)]) == 0
+    pend = json.loads((tmp_path / "scan/pending.json").read_text())
+    assert [c["company"] for c in pend] == ["Found Co"]
+    assert json.loads((tmp_path / "scan/health.json").read_text())["dropped"]["first_fetch_older"] == 1

@@ -250,6 +250,9 @@ def main(argv=None):
     silent_sources = set(fresh.get("first_fetch_silent_sources") or [])
     ff_age = fresh.get("first_fetch_max_age_days")
     ff_cutoff = (NOW - timedelta(days=int(ff_age))).isoformat() if ff_age else None
+    # companies the radar discovered (not ones the person already knew): their open roles are news to the
+    # person, so the first fetch uses the market window instead of first_fetch_max_age_days
+    discovered_sources = set(fresh.get("first_fetch_discovered_sources") or ["directory", "portfolio", "research", "discover", "added"])
     mk_age = int(fresh.get("market_max_age_days") or 0)
     mk_cutoff = (NOW - timedelta(days=mk_age)).isoformat() if mk_age else None
 
@@ -330,7 +333,8 @@ def main(argv=None):
             if silent:
                 drop("first_fetch_silent")
                 continue
-            if first_fetch and ff_cutoff and too_old(p.get("published"), ff_cutoff):
+            if first_fetch and ff_cutoff and (c.get("source") or "") not in discovered_sources \
+                    and too_old(p.get("published"), ff_cutoff):
                 drop("first_fetch_older")
                 continue
             if c["layer"] == "market" and mk_cutoff and too_old(p.get("published"), mk_cutoff):

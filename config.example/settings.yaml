@@ -129,6 +129,9 @@ freshness:
   first_fetch_silent_sources: [seed]
   # Other new companies: only surface roles posted within this many days on the first check.
   first_fetch_max_age_days: 21
+  # ...except companies the radar discovered itself: their roles are new to you, so they get the
+  # market window below on the first check too.
+  first_fetch_discovered_sources: [directory, portfolio, research, discover, added]
   # Market search only: ignore postings older than this (0 = no limit).
   market_max_age_days: 45
 

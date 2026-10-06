@@ -61,6 +61,7 @@ GraphQL (`gh workflow run`) may be blocked, REST works.
 - The shared directory repo is `calbrecht07/job-radar-directory` (public). Workflows read it; they write back only with a `DIRECTORY_TOKEN` secret, else each person keeps their copy in `pool/directory.csv`.
 - Full Common Crawl discovery has not yet run in the current layout (only `--skip-discovery` runs); the step is throttled hard by index.commoncrawl.org, hence the pacing in `discover.cc_get`.
 - `scan/matches.json` is a 60-day archive; junk from an old bug (VC careers pages linking portfolio jobs) was purged by hand once. If it reappears, the fix belongs in `sources/pages.job_links` / `boards.plausible`.
+- GitHub's own `schedule:` trigger proved unreliable (one scheduled scan in a day, 2h20m late). The data repo is triggered by cron-job.org instead (see `agent/ONBOARDING.md`); the workflow schedules stay as a backup. If scans stop, check the token's expiry first.
 - Snoopy's vault write needs the scheduled task bound to the person's Mac with the vault folder attached; otherwise it skips and logs it.
 
 ## Data repo layout (for reference)

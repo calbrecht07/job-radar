@@ -32,6 +32,7 @@ Ask them to create a **private, empty** GitHub repo and give the agent app acces
 ## 3. First runs
 
 1. Start the `companies` workflow (builds the pool), then `scan` (first scan + report).
+   GitHub runs scheduled workflows "best effort": on a new repo they can run hours late or not at all. Set up an external trigger: a free [cron-job.org](https://cron-job.org) job per workflow that POSTs to `https://api.github.com/repos/<owner>/<data-repo>/actions/workflows/<scan|companies>.yml/dispatches` with headers `Authorization: Bearer <token>`, `Accept: application/vnd.github+json`, `X-GitHub-Api-Version: 2022-11-28` and body `{"ref":"main"}` (companies: `{"ref":"main","inputs":{"skip_discovery":"false"}}`), at the workflows' cron times in UTC. The token is a fine-grained personal access token (Repository access: only the data repo; Permissions: Repository → Actions: Read and write). The person creates it and pastes it into cron-job.org themselves; never ask for it. A test run returns 204. Note the token's expiry: the scans stop when it lapses.
 2. Review the first queue yourself with the person present: it calibrates the rules. Adjust `settings.yaml` and `profile/rules.md` with what you learn.
 3. Publish `report/index.html` as an artifact; put its URL in `agent/config.yaml`.
 4. Create the scheduled task from `agent/templates/task-prompt.md` at their chosen times. It must not require web fetches; if it needs their computer (vault), bind it to that computer.

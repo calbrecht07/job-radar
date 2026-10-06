@@ -137,3 +137,12 @@ def test_rippling():
     with mock.patch.object(ats, "_get", fake_get({"rippling": data})):
         out = ats.fetch("rippling", "x")
     assert out[0]["workplace"] == "hybrid" and out[0]["locations"] == ["London, UK"]
+
+
+def test_board_patterns_fast_on_long_tokens():
+    """A page with a long unbroken token (inlined base64) made leading [\\w-]+ patterns quadratic."""
+    import time
+    blob = "<script>" + "A" * 300000 + "</script> https://acme.breezy.hr/p/1 https://acme.wd3.myworkdayjobs.com/Ext"
+    t = time.time()
+    found = ats.detect_boards(blob)
+    assert time.time() - t < 2 and ("breezy", "acme") in found and ("workday", "acme.wd3/Ext") in found

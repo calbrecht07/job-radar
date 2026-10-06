@@ -55,9 +55,10 @@ class Browser:
     def render(self, url: str) -> dict:
         out = {"status": None, "final_url": url, "html": "", "requests": [], "json": [], "error": ""}
         page = self._ctx.new_page()
-        responses = []
+        page.set_default_timeout(self.timeout_ms)
+        finished = []                                   # only completed requests: a stream that never ends can't hang us
         page.on("request", lambda r: out["requests"].append(r.url))
-        page.on("response", lambda r: responses.append(r))
+        page.on("requestfinished", lambda r: finished.append(r))
         try:
             resp = page.goto(url, wait_until="domcontentloaded", timeout=self.timeout_ms)
             out["status"] = resp.status if resp else None
@@ -71,11 +72,14 @@ class Browser:
             except Exception:
                 pass
             out["final_url"], out["html"] = page.url, page.content()
-            for r in responses[:400]:
-                ctype = (r.headers or {}).get("content-type", "")
-                if "json" not in ctype or _SKIP.search(r.url) or r.status >= 400:
+            for req in finished[:400]:
+                if req.resource_type not in ("xhr", "fetch") or _SKIP.search(req.url):
                     continue
                 try:
+                    r = req.response()
+                    ctype = (r.headers or {}).get("content-type", "") if r else ""
+                    if not r or "json" not in ctype or r.status >= 400:
+                        continue
                     body = r.body()
                     if len(body) < 3_000_000:
                         out["json"].append((r.url, json.loads(body)))

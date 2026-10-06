@@ -171,17 +171,24 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
   const opts = (sel, label, values, noun) => {
     const counts = {}; values.forEach(v => counts[v] = (counts[v]||0) + 1);
     if (state[sel.id] !== "all" && !(state[sel.id] in counts)) counts[state[sel.id]] = 0;   // keep the chosen option
-    const keys = Object.keys(counts).sort((a,b) => (a==="Other"||a==="Unknown") - (b==="Other"||b==="Unknown") || counts[b]-counts[a]);
+    const keys = Object.keys(counts).filter(k => counts[k] > 0 || k === state[sel.id])
+      .sort((a,b) => (a==="Other"||a==="Unknown") - (b==="Other"||b==="Unknown") || counts[b]-counts[a]);
     sel.innerHTML = `<option value="all">${esc(label)}</option>` + keys.map(k =>
       `<option value="${esc(k)}">${esc(k)} · ${counts[k]} role${counts[k]===1?"":"s"}</option>`).join("");
     sel.title = "Counts are roles " + noun;
   };
   const famOf = r => r.family || "Other", indOf = r => r.industries && r.industries.length ? r.industries : ["Unknown"];
+  // each dropdown counts what you'd see if you picked that option, with every other filter as it is
+  function rowsWithout(key){
+    const keep = state[key]; state[key] = "all";
+    const rows = state.view === "archive" ? archiveRows() : all.filter(pass);
+    state[key] = keep;
+    return rows;
+  }
   function fillOptions(){
-    const src = state.view === "archive" ? ARCH : all.filter(r => !isHidden(r));
-    const noun = state.view === "archive" ? "in the archive" : "open";
-    opts(document.getElementById("fam"), "All role types", src.map(famOf), noun);
-    opts(document.getElementById("ind"), "All industries", src.flatMap(indOf), noun);
+    const noun = state.view === "archive" ? "in the archive with your other filters" : "matching your other filters";
+    opts(document.getElementById("fam"), "All role types", rowsWithout("fam").map(famOf), noun);
+    opts(document.getElementById("ind"), "All industries", rowsWithout("ind").flatMap(indOf), noun);
     document.getElementById("fam").value = state.fam; document.getElementById("ind").value = state.ind;
   }
   const n = f => all.filter(f).length;

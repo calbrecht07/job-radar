@@ -1,4 +1,5 @@
 """Company directory, careers discovery, Workday, JobPosting data (fixtures only, no network)."""
+import json
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
@@ -229,3 +230,29 @@ def test_wikidata_retries_unreadable_reply():
         return r
     with mock.patch.object(wikidata._S, "get", get), mock.patch.object(wikidata.time, "sleep"):
         assert wikidata._sparql("SELECT 1") == [1]
+
+
+def test_repair_moves_disables_and_adds(tmp_path):
+    from radar import repair
+    d = tmp_path
+    (d / "scan").mkdir(); (d / "pool").mkdir()
+    (d / "wishlist.csv").write_text("name,kind,ats,slug,careers_url,source,note\n"
+                                    "Acme,startup,ashby,acme-old,https://acme.com/careers,seed,\n"
+                                    "Page Co,startup,,,https://page.co/careers,seed,\n")
+    (d / "index.csv").write_text("name,kind,ats,slug,added,source\nGone Co,startup,lever,goneco,2026-10-05,directory\n"
+                                 "#Off Co,startup,lever,off,2026-10-05,directory\n")
+    (d / "pool/directory.csv").write_text("key,name,website,checked\ngone.co,Gone Co,https://gone.co,2026-10-05\n")
+    (d / "scan/health.json").write_text(json.dumps({"not_found": [
+        {"company": "Acme", "board": "ashby:acme-old", "error": "not_found", "consecutive_fails": 3},
+        {"company": "Gone Co", "board": "lever:goneco", "error": "not_found", "consecutive_fails": 5}], "failed": []}))
+    (d / "scan/board_audit.json").write_text(json.dumps({"mismatches": [{"company": "Page Co", "configured": None,
+                                                                          "found_on_page": ["teamtailor:pageco"]}]}))
+    def discover(c, seconds=30):
+        return {"method": "feed", "board": "greenhouse:acme"} if c["name"] == "Acme" else {"method": "none", "board": ""}
+    with mock.patch.object(repair.careers, "discover", discover), mock.patch.object(repair, "works", lambda b: 4):
+        assert repair.main(["--data", str(d)]) == 0
+    wish = (d / "wishlist.csv").read_text(); idx = (d / "index.csv").read_text()
+    assert "Acme,startup,greenhouse,acme," in wish and "Page Co,startup,teamtailor,pageco," in wish
+    assert "#Gone Co,startup,lever,goneco" in idx and "#Off Co" in idx
+    assert "gone.co,Gone Co,https://gone.co,\n" in (d / "pool/directory.csv").read_text()
+    assert {e["action"] for e in json.loads((d / "scan/repairs.json").read_text())} == {"moved", "disabled", "board added"}

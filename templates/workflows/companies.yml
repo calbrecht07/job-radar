@@ -59,6 +59,8 @@ jobs:
         run: set -o pipefail; PYTHONPATH=.engine python -m radar.companies --data . 2>&1 | tee -a pool/companies.log
       - name: Company directory (Wikidata, directories, research) and careers discovery
         run: set -o pipefail; PYTHONPATH=.engine python -m radar.directory --data . --directory .directory 2>&1 | tee -a pool/companies.log
+      - name: Repair job boards that stopped working
+        run: set -o pipefail; PYTHONPATH=.engine python -m radar.repair --data . 2>&1 | tee -a pool/companies.log
       - name: Share the directory
         if: env.DIRECTORY_TOKEN != ''
         working-directory: .directory
@@ -74,7 +76,7 @@ jobs:
         run: |
           git config user.name "job-radar-bot"
           git config user.email "job-radar-bot@users.noreply.github.com"
-          git add -A index.csv wishlist.csv state pool; [ -d inbox ] && git add -A inbox
+          git add -A index.csv wishlist.csv state pool; [ -f scan/repairs.json ] && git add scan/repairs.json; [ -d inbox ] && git add -A inbox
           git diff --cached --quiet && exit 0
           git commit -q -m "companies: pool $(python -c "import json;print(json.load(open('pool/companies.json'))['count'])") companies"
           for i in 1 2 3; do git pull -q --rebase && git push -q && exit 0; sleep 5; done

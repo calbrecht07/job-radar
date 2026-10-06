@@ -135,7 +135,7 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
   <section id="watch" class="current"><h2>Watchlist <small id="watchCount"></small></h2><div id="watchList"></div></section>
   <section id="market" class="current"><h2>Market search <small id="marketCount"></small></h2><div id="marketList"></div></section>
   <section id="pages" class="current"><h2>Careers pages</h2><div class="list" id="pageList"></div></section>
-  <section id="attn" class="current"><h2>Needs attention</h2><div class="list" id="attnList"></div></section>
+  <section id="attn" class="current"><h2>Radar status</h2><div class="list" id="attnList"></div></section>
   <section id="archive"><h2>Archive <small id="archiveCount"></small></h2>
     <p class="sub">Every role the radar has shown or judged: what you hid, what Snoopy cut, postings that closed, and market roles older than the report window.</p>
     <div id="archiveList"></div></section>
@@ -317,12 +317,16 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
   document.getElementById("pageList").innerHTML = html || `<p class="empty">No careers pages to watch.</p>`;
 
   const A = [];
-  (D.failing||[]).forEach(f => A.push(`<p class="warn">Job board not responding: ${esc(f.company)} (${esc(f.board)})</p>`));
-  (D.audit||[]).forEach(a => A.push(`<p>${esc(a.company)}: careers page links to ${a.found_on_page.map(b => "<code>"+esc(b)+"</code>").join(", ")}${a.configured ? " (configured: <code>"+esc(a.configured)+"</code>)" : ""}</p>`));
+  // only what needs the person goes first; radar housekeeping folds into one line each
   (D.unverified_roles||[]).forEach(r => A.push(`<p class="warn">Could not verify the link (page needs JavaScript), check before applying: <b>${esc(r.company)}</b> · <a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a> · ${FITL[fitKey(r)]}${r.note ? " · " + esc(r.note) : ""}</p>`));
+  const F = D.failing||[], AU = D.audit||[];
+  if (F.length) A.push(`<details><summary>${F.length} job board${F.length>1?"s":""} not answering. The weekly repair switches each company to its current board, or stops checking it.</summary>
+    <p class="sub">${F.map(f => esc(f.company) + " (" + esc(f.board) + ")").join(", ")}</p></details>`);
+  if (AU.length) A.push(`<details><summary>${AU.length} compan${AU.length>1?"ies":"y"} whose careers page links to a different job board. The weekly repair records it.</summary>
+    <p class="sub">${AU.map(a => esc(a.company) + ": " + a.found_on_page.map(esc).join(", ")).join("; ")}</p></details>`);
   if (D.verified_at) A.push(`<p class="sub">Every listed link was confirmed live at ${esc((D.verified_at||"").replace("T"," ").slice(0,16))} UTC; ${D.closed_count||0} closed postings removed.</p>`);
   if (D.hidden_cut) A.push(`<p class="sub">${D.hidden_cut} reviewed roles were cut and are hidden.</p>`);
-  document.getElementById("attnList").innerHTML = A.join("") || `<p class="empty">Nothing needs attention.</p>`;
+  document.getElementById("attnList").innerHTML = A.join("") || `<p class="empty">All job boards are answering.</p>`;
   render();
 })();
 </script>

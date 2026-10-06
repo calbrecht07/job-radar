@@ -118,6 +118,27 @@ def build(data: Path, cfg: dict | None = None, skip_verify: bool = False) -> dic
     mk += [{**m, "found": m.get("found") or m.get("first_seen", "")} for m in matches_extra]
     mk.sort(key=lambda m: (m.get("kind") != "vc", rank.get(m.get("fit"), 3), m["company"].lower()))
 
+    # labels for the page's filters, and what's new since the previous report
+    from radar import categorize
+    inds = categorize.Industries(data, cfg)
+    # first time each role appeared on the page (kept across rebuilds; the scan rebuilds 6x a day)
+    prev = _load(data / "report/report.json", {})
+    shown_since = {}
+    latest_review = max((str(v.get("reviewed") or "") for v in judged.values() if isinstance(v, dict)), default="")
+    for k in ("watchlist_roles", "market_roles", "unverified_roles"):
+        for r in prev.get(k) or []:          # reports from before this field: only the latest judging batch is new
+            reviewed = str((judged.get(r.get("id")) or {}).get("reviewed") or "")
+            shown_since[r.get("id")] = r.get("shown_since") or (reviewed if reviewed and reviewed == latest_review else "")
+    first_report = not prev
+    new_after = (now - timedelta(days=2)).isoformat(timespec="minutes")
+    for row in wl_roles + mk + unverified_roles:
+        row["family"] = categorize.family(row.get("title", ""), row.get("kind") or "")
+        tagged = (judged.get(row.get("id")) or {}).get("industry")       # Snoopy's tag, from the job description
+        row["industries"] = ([tagged] if isinstance(tagged, str) and tagged else list(tagged or [])) or inds.of(row.get("company", ""))
+        rid = row.get("id")
+        row["shown_since"] = shown_since[rid] if rid in shown_since else ("" if first_report else now.isoformat(timespec="minutes"))
+        row["new"] = bool(row["shown_since"]) and row["shown_since"] >= new_after
+
     rep = {"updated": health.get("run_at"), "boards": health.get("boards"), "watchlist_size": len(wl),
            "watchlist_roles": wl_roles, "watchlist_quiet": quiet, "pages": pages_rows,
            "market_days": days, "market_roles": mk, "hidden_cut": hidden,

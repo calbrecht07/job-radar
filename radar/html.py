@@ -74,7 +74,21 @@ section{display:flex;flex-direction:column;gap:12px}
 .warn{color:var(--warn)}
 .empty{color:var(--muted);font-style:italic}
 details summary{cursor:pointer;font-weight:600}
-@media (max-width:520px){h1{font-size:1.5rem}.role{grid-template-columns:1fr}}
+.bar select{font:600 .82rem var(--body);padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--ink);max-width:100%}
+.bar select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.badge{font:600 .68rem var(--body);padding:1px 7px;border-radius:999px;background:var(--accent-soft);color:var(--accent);margin-left:6px;vertical-align:2px;letter-spacing:.03em}
+.labels{display:flex;flex-wrap:wrap;gap:4px}
+.labels span{font:500 .72rem var(--mono);color:var(--muted)}
+.hide{display:none;font:600 .74rem var(--body);color:var(--muted);background:none;border:1px solid var(--line);border-radius:6px;padding:2px 8px;cursor:pointer;justify-self:end;align-self:start}
+.hide:hover{color:var(--warn);border-color:var(--warn)}
+.hide:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.can-hide .hide{display:inline-block}
+.role{grid-template-columns:auto 1fr auto}
+.co-h .right{display:flex;gap:8px;align-items:center}
+#hidden{display:none}.can-hide #hidden{display:flex}
+.hid-row{display:flex;justify-content:space-between;gap:10px;align-items:center;border-top:1px solid var(--line);padding-top:6px}
+.hid-row:first-child{border-top:0;padding-top:0}
+@media (max-width:520px){h1{font-size:1.5rem}.role{grid-template-columns:1fr auto}.role .fit{grid-column:1/-1}}
 @media (prefers-reduced-motion:no-preference){.co{transition:opacity .15s}}
 </style>
 
@@ -90,17 +104,22 @@ details summary{cursor:pointer;font-weight:600}
       <button class="chip" data-f="fit" data-v="all" aria-pressed="true">All</button>
       <button class="chip" data-f="fit" data-v="keep" aria-pressed="false">Keep</button>
       <button class="chip" data-f="fit" data-v="stretch" aria-pressed="false">Stretch</button>
+      <button class="chip" data-f="fit" data-v="new" aria-pressed="false">New</button>
     </div>
     <div class="chips" role="group" aria-label="Where">
       <button class="chip" data-f="pool" data-v="all" aria-pressed="true">Anywhere</button>
       <button class="chip" data-f="pool" data-v="local" aria-pressed="false" id="localChip">Local</button>
       <button class="chip" data-f="pool" data-v="remote" aria-pressed="false">Remote</button>
     </div>
+    <select id="fam" aria-label="Role type"></select>
+    <select id="ind" aria-label="Industry"></select>
+    <span class="sub" id="status" role="status"></span>
   </div>
   <section id="watch"><h2>Watchlist <small id="watchCount"></small></h2><div id="watchList"></div></section>
   <section id="market"><h2>Market search <small id="marketCount"></small></h2><div id="marketList"></div></section>
   <section id="pages"><h2>Careers pages</h2><div class="list" id="pageList"></div></section>
   <section id="attn"><h2>Needs attention</h2><div class="list" id="attnList"></div></section>
+  <section id="hidden"><h2>Hidden by you <small id="hiddenCount"></small></h2><div class="list" id="hiddenList"></div></section>
 </div>
 
 <script type="application/json" id="data">__DATA__</script>
@@ -108,7 +127,12 @@ details summary{cursor:pointer;font-weight:600}
 (function(){
   const D = JSON.parse(document.getElementById("data").textContent);
   const LOCAL = D.local_label || "Local";
-  const state = {fit:"all", pool:"all", q:""};
+  const state = {fit:"all", pool:"all", fam:"all", ind:"all", q:""};
+  let hidden = new Map();            // db "hidden" collection: doc id -> {kind, label}
+  let hiddenCol = null;
+  const keyOf = s => String(s||"").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 120) || "x";
+  const roleKey = r => "role-" + keyOf(r.id);
+  const coKey = c => "company-" + keyOf(c);
   try { const s = JSON.parse(localStorage.getItem("radar-filters")||"{}"); Object.assign(state, s, {q:""}); } catch(e){}
   const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const fitKey = r => r.fit === "keep" ? "keep" : r.fit === "stretch" ? "stretch" : "review";
@@ -123,11 +147,19 @@ details summary{cursor:pointer;font-weight:600}
     "Updated " + (D.updated||"").replace("T"," ").slice(0,16) + " UTC · " + D.boards + " job boards · " + D.watchlist_size + " watchlist companies";
 
   const all = D.watchlist_roles.concat(D.market_roles);
+  const opts = (sel, label, values) => {
+    const counts = {}; values.forEach(v => counts[v] = (counts[v]||0) + 1);
+    const keys = Object.keys(counts).sort((a,b) => (a==="Other"||a==="Unknown") - (b==="Other"||b==="Unknown") || counts[b]-counts[a]);
+    sel.innerHTML = `<option value="all">${esc(label)}</option>` + keys.map(k => `<option value="${esc(k)}">${esc(k)} (${counts[k]})</option>`).join("");
+  };
+  opts(document.getElementById("fam"), "All role types", all.map(r => r.family || "Other"));
+  opts(document.getElementById("ind"), "All industries", all.flatMap(r => r.industries && r.industries.length ? r.industries : ["Unknown"]));
   const n = f => all.filter(f).length;
   const withRoles = new Set(D.watchlist_roles.map(r => r.company)).size;
   document.getElementById("stats").innerHTML = [
     [n(r => r.fit === "keep"), "Keep"],
     [n(r => r.fit === "stretch"), "Stretch"],
+    [n(r => r.new), "New in 2 days"],
     [D.awaiting_review || 0, "Awaiting judgement"],
     [withRoles + " / " + D.watchlist_size, "Watchlist companies hiring"],
     [D.market_roles.length, "Market matches, " + D.market_days + " days"],
@@ -137,22 +169,29 @@ details summary{cursor:pointer;font-weight:600}
     const k = fitKey(r);
     const flags = (r.flags||[]).map(f => `<i>${esc(f)}</i>`).join("");
     const since = r.first_seen || (r.found||"").slice(0,10);
+    const labels = [r.family].concat(r.industries || []).filter(x => x && x !== "Unknown");
     return `<div class="role"><span class="fit ${k}">${FITL[k]}</span>
-      <div class="r-main"><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>
+      <div class="r-main"><div><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>${r.new ? '<span class="badge">New</span>' : ""}</div>
       <div class="meta">${esc(where(r))}${since ? " · since " + esc(since) : ""}</div>
+      ${labels.length ? `<div class="labels">${labels.map(l => `<span>${esc(l)}</span>`).join("<span>·</span>")}</div>` : ""}
       ${r.note ? `<div class="note">${esc(r.note)}</div>` : ""}
-      ${flags ? `<div class="flags">${flags}</div>` : ""}</div></div>`;
+      ${flags ? `<div class="flags">${flags}</div>` : ""}</div>
+      <button class="hide" data-hide="role" data-id="${esc(r.id)}" aria-label="Hide ${esc(r.title)} at ${esc(r.company)}">Hide</button></div>`;
   }
   function groupHTML(roles){
     const groups = new Map();
     roles.forEach(r => { if(!groups.has(r.company)) groups.set(r.company, []); groups.get(r.company).push(r); });
     if (!groups.size) return `<p class="empty">No roles match these filters.</p>`;
     return [...groups].map(([c, rs]) => `<article class="co"><div class="co-h"><h3>${esc(c)}</h3>
-      <span class="tag">${rs[0].kind === "vc" ? "VC · " : ""}${rs.length} role${rs.length>1?"s":""}</span></div>
+      <span class="right"><span class="tag">${rs[0].kind === "vc" ? "VC · " : ""}${rs.length} role${rs.length>1?"s":""}</span>
+      <button class="hide" data-hide="company" data-company="${esc(c)}" aria-label="Hide all roles at ${esc(c)}">Hide company</button></span></div>
       ${rs.map(roleHTML).join("")}</article>`).join("");
   }
   function pass(r){
-    if (state.fit !== "all" && fitKey(r) !== state.fit) return false;
+    if (hidden.has(roleKey(r)) || hidden.has(coKey(r.company))) return false;
+    if (state.fit === "new" ? !r.new : (state.fit !== "all" && fitKey(r) !== state.fit)) return false;
+    if (state.fam !== "all" && (r.family || "Other") !== state.fam) return false;
+    if (state.ind !== "all" && !(r.industries && r.industries.length ? r.industries : ["Unknown"]).includes(state.ind)) return false;
     if (state.pool !== "all" && r.pool !== state.pool) return false;
     const q = state.q.trim().toLowerCase();
     return !q || (r.company + " " + r.title).toLowerCase().includes(q);
@@ -164,10 +203,58 @@ details summary{cursor:pointer;font-weight:600}
     document.getElementById("watchCount").textContent = w.length + " roles";
     document.getElementById("marketCount").textContent = m.length + " roles";
     document.querySelectorAll(".chip").forEach(b => b.setAttribute("aria-pressed", String(state[b.dataset.f] === b.dataset.v)));
-    try { localStorage.setItem("radar-filters", JSON.stringify({fit:state.fit, pool:state.pool})); } catch(e){}
+    document.getElementById("fam").value = state.fam; document.getElementById("ind").value = state.ind;
+    const H = [...hidden].sort((a,b) => String(b[1].at||"").localeCompare(String(a[1].at||"")));
+    document.getElementById("hiddenCount").textContent = H.length ? H.length + "" : "";
+    document.getElementById("hiddenList").innerHTML = H.length ? H.map(([k, v]) => `<div class="hid-row"><span>${v.kind === "company" ? "Company: " : ""}${esc(v.label)}</span>
+      <button class="hide" data-restore="${esc(k)}" aria-label="Show ${esc(v.label)} again">Restore</button></div>`).join("")
+      : `<p class="empty">Nothing hidden. Use Hide on a role or a company to remove it from the lists.</p>`;
+    try { localStorage.setItem("radar-filters", JSON.stringify({fit:state.fit, pool:state.pool, fam:state.fam, ind:state.ind})); } catch(e){}
   }
   document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () => { state[b.dataset.f] = b.dataset.v; render(); }));
   document.getElementById("q").addEventListener("input", e => { state.q = e.target.value; render(); });
+  ["fam","ind"].forEach(id => document.getElementById(id).addEventListener("change", e => { state[id] = e.target.value; render(); }));
+  if (![...document.getElementById("fam").options].some(o => o.value === state.fam)) state.fam = "all";
+  if (![...document.getElementById("ind").options].some(o => o.value === state.ind)) state.ind = "all";
+
+  // Hide / restore: kept in the artifact's db, so it survives every republish. Without db (a saved copy,
+  // the notes vault) the buttons stay hidden and the page works read-only.
+  let busy = false;
+  document.addEventListener("click", async e => {
+    const b = e.target.closest("button[data-hide],button[data-restore]");
+    if (!b || !hiddenCol || busy) return;
+    busy = true; b.disabled = true;
+    try {
+      if (b.dataset.restore) {
+        await hiddenCol.doc(b.dataset.restore).delete();
+        document.getElementById("status").textContent = "Restored";
+      } else if (b.dataset.hide === "company") {
+        const c = b.dataset.company;
+        await hiddenCol.doc(coKey(c)).set({kind:"company", label:c, company:c, at:new Date().toISOString()});
+        document.getElementById("status").textContent = "Hid " + c + ". Restore it under Hidden by you.";
+      } else {
+        const r = all.find(x => String(x.id) === b.dataset.id);
+        if (r) await hiddenCol.doc(roleKey(r)).set({kind:"role", label:r.title + " · " + r.company, company:r.company, title:r.title, role_id:String(r.id), url:r.url||"", at:new Date().toISOString()});
+        document.getElementById("status").textContent = "Hid " + r.title + ". Restore it under Hidden by you.";
+      }
+    } catch(err) {
+      b.disabled = false;
+      document.getElementById("status").textContent = err && err.code === "invalid_argument"
+        ? "You can view this page but not change it." : "Couldn't save that. Check your connection and try again.";
+    } finally { busy = false; }
+  });
+  (async () => {
+    try {
+      const db = window.claude && window.claude.use ? await window.claude.use("db") : null;
+      if (!db) return;
+      hiddenCol = db.collection("hidden");
+      hiddenCol.onSnapshot(snap => {
+        hidden = new Map(snap.docs.map(d => [d.id, d.data() || {}]));
+        document.body.classList.add("can-hide");
+        render();
+      }, () => { hiddenCol = null; document.body.classList.remove("can-hide"); });
+    } catch(e) {}
+  })();
 
   const P = D.pages || [], label = {unchanged:"Unchanged", first_check:"First check, baseline saved",
     js_only:"Jobs load with JavaScript: check in a browser", error:"Couldn't load", not_checked:"No feed or careers page: covered by web search"};

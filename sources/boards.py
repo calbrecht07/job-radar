@@ -540,6 +540,8 @@ BOARD_PATTERNS = [
 ]
 _IGNORE_SLUGS = {"www", "api", "app", "jobs", "careers", "embed", "j", "static", "assets", "cdn", "js",
                  "staticfe", "resources", "bhrpendo", "support", "help", "marketing"}
+_GENERIC_WORDS = {"group", "global", "holdings", "limited", "capital", "ventures", "technologies", "technology", "systems",
+                  "solutions", "services", "partners", "international", "health", "careers", "london", "digital", "labs"}
 _WORKDAY_NOT_SITES = {"wday", "job", "login", "recruiting", "userhome", "candidatehome"}
 
 
@@ -560,7 +562,11 @@ def plausible(company: str, slug: str, url: str = "") -> bool:
     host = re.sub(r"^www\.", "", (re.findall(r"https?://([^/]+)", url) or [""])[0].lower())
     if host:
         names.add(_norm(host.split(".")[0]))
-    return any(n and (n.startswith(sl) or sl.startswith(n) or sl in n) for n in names if len(n) >= 3)
+    if any(n and (n.startswith(sl) or sl.startswith(n) or sl in n) for n in names if len(n) >= 3):
+        return True
+    # abbreviated slugs keep a distinctive word of the name: "octoenergy" for Octopus Energy
+    words = {_norm(w) for w in re.findall(r"[A-Za-z0-9]+", company) if len(w) >= 5}
+    return any(w in sl for w in words if w not in _GENERIC_WORDS)
 
 
 def detect_boards(html_text: str) -> list[tuple[str, str]]:

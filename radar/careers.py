@@ -66,6 +66,7 @@ _CAREER_URL = re.compile(r"career|/jobs?\b|vacanc|join-?us|work-?with-?us|work-?
 _NEXT_TXT = re.compile(r"(search|view|see|browse|explore|find|current|all|open|latest) (all |our |current )?"
                        r"(jobs|roles|vacancies|opportunities|positions|openings)|job search|vacancies|apply now|"
                        r"open (roles|positions)", re.I)
+_SIDE_PAGE = re.compile(r"early[- ]?careers?|graduate|universit|student|intern|apprentice|alumni|culture|benefits|life-at|our-people|stories", re.I)
 _IFRAME = re.compile(r"<iframe[^>]+src=[\"']([^\"']+)[\"']", re.I)
 _A = pages._A
 _TAG = pages._TAG
@@ -73,7 +74,7 @@ _SOCIAL = re.compile(r"linkedin\.com|facebook\.com|twitter\.com|x\.com/|instagra
 
 
 COMPANY_SECONDS = 30            # whole-discovery budget per company: slow sites must not hold a thread
-MAX_BYTES = 2_000_000
+MAX_BYTES = 6_000_000            # some homepages are 4 MB+ (Ramp) and name their job board near the end
 _LOCAL = threading.local()
 
 
@@ -128,8 +129,12 @@ def career_links(raw: str, base: str) -> list[str]:
             continue
         s = (2 if _CAREER_TXT.search(text) else 0) + (1 if _CAREER_URL.search(url) else 0)
         if s >= 2:
+            if _SIDE_PAGE.search(url) or _SIDE_PAGE.search(text):
+                s -= 1.5                               # early careers, graduates, life-at pages: last resort
+            if re.search(r"/(careers?|jobs|open-(positions|roles)|vacancies)/?$", urlparse(url).path, re.I):
+                s += 0.5                               # the main careers page itself
             scored[url] = max(scored.get(url, 0), s)
-    return sorted(scored, key=lambda u: -scored[u])[:4]
+    return sorted(scored, key=lambda u: (-scored[u], len(u)))[:4]
 
 
 def next_links(raw: str, base: str) -> list[str]:
@@ -161,6 +166,7 @@ def _sitemap_careers(home_url: str) -> str | None:
 
 # a single posting's URL, as opposed to careers navigation (/careers/life-at-acme, /careers/featured-careers)
 _POSTING_URL = re.compile(r"/(job|jobs|vacanc\w*|positions?|openings?|requisitions?|reqs?|roles?|apply|job-details?)/[^/?#]+|"
+                          r"/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-|/\d{4,}[-/]|"
                           r"[?&](job_?id|jobid|gh_jid|req(uisition)?_?id|vacancy_?id|id)=|\d{3,}[^/]*/?$|"
                           r"ashbyhq\.com/|lever\.co/|greenhouse\.io/|workable\.com/|smartrecruiters\.com/", re.I)
 

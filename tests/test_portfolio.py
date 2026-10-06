@@ -17,3 +17,13 @@ def test_consider_mapping():
     with mock.patch.object(pf, "_consider_post", lambda info, what, page_, size=100: page):
         out = pf.consider_jobs({"base": "https://careers.b.com", "board": {"id": "b"}})
     assert out[0]["company"] == "Lawhive" and out[0]["url"].startswith("https://jobs.ashbyhq.com")
+
+
+def test_consider_company_offices():
+    from unittest import mock
+    from sources import portfolio
+    data = {"total": 1, "companies": [{"id": "s1", "name": "Stripe", "domain": "stripe.com", "slug": "stripe",
+                                       "officeLocations": ["Dublin, Ireland", "London"], "stages": ["Growth"], "markets": ["Fintech"]}]}
+    with mock.patch.object(portfolio, "_consider_post", lambda info, what, page, size=100: data):
+        out = portfolio.consider_companies({"base": "https://jobs.vc.com"})
+    assert out[0]["locations"] == ["Dublin, Ireland", "London"] and out[0]["stage"] == "Growth"

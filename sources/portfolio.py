@@ -153,7 +153,8 @@ def consider_companies(info: dict, cap: int = 5000) -> list[dict]:
             continue
         seen.add(key)
         out.append({"name": c.get("name") or c.get("id"), "domain": c.get("domain"), "slug": c.get("slug") or c.get("id"),
-                    "locations": c.get("locations") or [], "stage": c.get("stage"), "industries": c.get("markets") or [],
+                    "locations": c.get("officeLocations") or c.get("locations") or [],   # Consider: officeLocations
+                    "stage": c.get("stage") or ", ".join(c.get("stages") or []) or None, "industries": c.get("markets") or [],
                     "open_jobs": sum(s_.get("count", 0) for s_ in c.get("jobSources") or []),
                     "investors": c.get("investors") or [], "board_page": f"{info['base']}/companies/{c.get('slug') or c.get('id')}"})
     return out

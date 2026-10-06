@@ -139,13 +139,15 @@ def build(data: Path, cfg: dict | None = None, skip_verify: bool = False) -> dic
         row["shown_since"] = shown_since[rid] if rid in shown_since else ("" if first_report else now.isoformat(timespec="minutes"))
         row["new"] = bool(row["shown_since"]) and row["shown_since"] >= new_after
 
+    archive = build_archive(data, judged, wl, matches, closed, wl_roles + mk + unverified_roles, since, inds, now)
+
     rep = {"updated": health.get("run_at"), "boards": health.get("boards"), "watchlist_size": len(wl),
            "watchlist_roles": wl_roles, "watchlist_quiet": quiet, "pages": pages_rows,
            "market_days": days, "market_roles": mk, "hidden_cut": hidden,
            "closed_count": len(closed), "awaiting_review": awaiting, "unverified_roles": unverified_roles,
            "verified_at": vres.get("updated"),
            "failing": (health.get("not_found") or []) + [f for f in health.get("failed") or [] if f.get("consecutive_fails", 0) >= 2],
-           "audit": audit}
+           "audit": audit, "archive": archive}
     out = data / "report"
     out.mkdir(exist_ok=True)
     (out / "report.json").write_text(json.dumps(rep, indent=1, ensure_ascii=False) + "\n")
@@ -153,6 +155,96 @@ def build(data: Path, cfg: dict | None = None, skip_verify: bool = False) -> dic
     from radar import html
     html.build(data)
     return rep
+
+
+ARCHIVE_MAX = 3000
+
+
+def _title_from_url(url: str) -> str:
+    """A readable title from a job URL's slug (/careers/business-operations-manager), for verdicts whose posting
+    details are gone. IDs, hashes and generic path words are skipped; nothing readable -> say so."""
+    import re
+    from urllib.parse import urlparse
+    generic = {"job", "jobs", "careers", "career", "j", "p", "o", "en", "en-us", "en-gb", "apply", "positions", "openings",
+               "view", "posting", "postings", "search", "opening", "external", "roles", "role", "vacancies"}
+    best = ""
+    for seg in urlparse(url or "").path.split("/"):
+        words = [w for w in re.split(r"[-_+%20 ]+", seg) if w]
+        words = [w for w in words if not re.fullmatch(r"[0-9a-f]{3,}|\d+|r\d+|jr\d+", w, re.I)]
+        if len(words) >= 2 and seg.lower() not in generic and sum(len(w) for w in words) >= 8:
+            best = " ".join(words)
+    return (best[:1].upper() + best[1:]) if best else "Role (title not recorded)"
+
+
+def _company_from_url(url: str) -> str:
+    from sources import boards as ats
+    hit = next(iter(ats.detect_boards(url or "")), None)
+    if hit:
+        slug = hit[1].split("/")[-1] if hit[0] != "workday" else hit[1].split("/")[0].split(".")[0]
+        return slug.replace("-", " ").replace("_", " ").title()
+    from radar.careers import registrable
+    host = registrable(url or "")
+    return host.split(".")[0].title() if host else ""
+
+
+def build_archive(data: Path, judged: dict, wl: dict, matches: list, closed: dict, shown: list, since: str,
+                  inds, now) -> list[dict]:
+    """Every role the radar has shown or judged, kept across runs in report/archive.json, with why it isn't in
+    the main lists: cut (Snoopy's verdict), closed (posting gone), older (left the market window), gone (no
+    longer listed). The page adds "hidden by you" from its own db. Current roles are kept as status open so
+    their history survives once they leave."""
+    from radar import categorize
+    path = data / "report/archive.json"
+    arch = {r["id"]: r for r in _load(path, []) if r.get("id")}
+    today = now.date().isoformat()
+    details = {}
+    for name, s in wl.items():
+        for r in s.get("roles", []):
+            details[r["id"]] = {**r, "company": name, "kind": s.get("kind")}
+    for m in matches:
+        details.setdefault(m["id"], m)
+    for rid, c in closed.items():
+        details.setdefault(rid, {"id": rid, "company": c.get("company"), "title": c.get("title"), "url": c.get("url")})
+    shown_ids = {r["id"] for r in shown}
+
+    def upsert(rid, base, status, why=""):
+        old = arch.get(rid, {})
+        j = judged.get(rid) or {}
+        rec = {"id": rid, "company": base.get("company") or old.get("company") or _company_from_url(base.get("url") or j.get("url") or ""),
+               "title": base.get("title") or old.get("title") or _title_from_url(base.get("url") or j.get("url") or ""),
+               "url": base.get("url") or old.get("url") or j.get("url") or "",
+               "fit": j.get("fit") or base.get("fit") or old.get("fit"), "note": j.get("note") or old.get("note") or "",
+               "pool": base.get("pool") or old.get("pool") or "", "locations": base.get("locations") or old.get("locations") or [],
+               "first_seen": old.get("first_seen") or base.get("first_seen") or (base.get("found") or "")[:10] or j.get("reviewed") or today,
+               "status": status, "why": why or (old.get("why") if old.get("status") == status else ""),
+               "status_on": old.get("status_on") if old.get("status") == status and old.get("status_on") else today}
+        rec["family"] = categorize.family(rec["title"], base.get("kind") or "")
+        tag = j.get("industry")
+        rec["industries"] = ([tag] if isinstance(tag, str) and tag else list(tag or [])) or base.get("industries") or inds.of(rec["company"])
+        arch[rid] = rec
+
+    for r in shown:
+        upsert(r["id"], r, "open")
+    for rid, j in judged.items():
+        if rid in shown_ids or not isinstance(j, dict):
+            continue
+        base = details.get(rid, {"url": j.get("url")})
+        if rid in closed:
+            upsert(rid, base, "closed", closed[rid].get("reason", ""))
+        elif j.get("fit") == "cut":
+            upsert(rid, base, "cut", j.get("note", ""))
+        elif base.get("layer") == "market" and (base.get("found") or "") < since:
+            upsert(rid, base, "older", "")
+        elif j.get("fit") in ("keep", "stretch"):     # judged worth it, no longer on the page: the posting is gone
+            upsert(rid, base, "gone", "no longer listed by the company")
+    for rid, r in list(arch.items()):              # was open, now neither shown nor judged elsewhere
+        if r.get("status") == "open" and rid not in shown_ids:
+            upsert(rid, details.get(rid, r), "closed" if rid in closed else "gone",
+                   (closed.get(rid) or {}).get("reason", "no longer listed by the company"))
+    out = sorted(arch.values(), key=lambda r: (r.get("status_on") or "", r.get("first_seen") or ""), reverse=True)[:ARCHIVE_MAX]
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(json.dumps(out, indent=0, ensure_ascii=False) + "\n")
+    return [r for r in out if r["status"] != "open"]
 
 
 def render_md(rep: dict, local_label: str) -> str:

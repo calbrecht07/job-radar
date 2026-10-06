@@ -58,3 +58,28 @@ def test_report_marks_new_roles(tmp_path, monkeypatch):
     for _ in range(2):
         rows = {x["id"]: x for x in report.build(d, skip_verify=True)["watchlist_roles"]}
         assert rows["b2"]["new"] and not rows["a1"]["new"]
+
+
+def test_archive_keeps_history(tmp_path, monkeypatch):
+    """Cut, closed and vanished roles go to the archive with a reason, and survive later rebuilds."""
+    from radar import report
+    d = tmp_path
+    for sub in ("scan", "report", "pool"):
+        (d / sub).mkdir()
+    (d / "settings.yaml").write_text("locations: {local: {label: London}}\n")
+    live = {"id": "a1", "title": "Chief of Staff", "url": "https://jobs.ashbyhq.com/acme/1", "pool": "local", "locations": ["London"]}
+    gone = {"id": "b2", "title": "Product Manager", "url": "https://jobs.ashbyhq.com/acme/2", "pool": "local", "locations": ["London"]}
+    (d / "scan/watchlist.json").write_text(json.dumps({"companies": {"Acme": {"kind": "startup", "roles": [live, gone]}}}))
+    (d / "scan/health.json").write_text("{}")
+    (d / "judged.json").write_text(json.dumps({
+        "a1": {"fit": "keep", "reviewed": "2026-10-01"}, "b2": {"fit": "stretch", "reviewed": "2026-10-01"},
+        "c3": {"fit": "cut", "note": "too senior", "url": "https://acme.com/careers/head-of-operations-europe", "reviewed": "2026-10-01"}}))
+    monkeypatch.setattr("radar.html.build", lambda data: None)
+    first = {r["id"]: r for r in report.build(d, skip_verify=True)["archive"]}
+    assert first["c3"]["status"] == "cut" and first["c3"]["why"] == "too senior"
+    assert first["c3"]["title"] == "Head of operations europe" and "b2" not in first
+    # next run: the PM posting has gone from the feed
+    (d / "scan/watchlist.json").write_text(json.dumps({"companies": {"Acme": {"kind": "startup", "roles": [live]}}}))
+    second = {r["id"]: r for r in report.build(d, skip_verify=True)["archive"]}
+    assert second["b2"]["status"] == "gone" and second["b2"]["title"] == "Product Manager" and second["b2"]["company"] == "Acme"
+    assert "a1" not in second and second["c3"]["status"] == "cut"

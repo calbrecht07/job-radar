@@ -85,9 +85,15 @@ details summary{cursor:pointer;font-weight:600}
 .can-hide .hide{display:inline-block}
 .role{grid-template-columns:auto 1fr auto}
 .co-h .right{display:flex;gap:8px;align-items:center}
-#hidden{display:none}.can-hide #hidden{display:flex}
-.hid-row{display:flex;justify-content:space-between;gap:10px;align-items:center;border-top:1px solid var(--line);padding-top:6px}
-.hid-row:first-child{border-top:0;padding-top:0}
+.views{display:flex;gap:6px}
+.st{font:600 .7rem var(--body);padding:2px 8px;border-radius:999px;white-space:nowrap;align-self:start;letter-spacing:.02em;background:var(--accent-soft);color:var(--muted)}
+.st.cut,.st.closed,.st.gone{color:var(--warn);background:var(--warn-bg)} .st.hidden{color:var(--review);background:var(--review-bg)}
+.why{font-size:.84rem;color:var(--muted)}
+.more{font:600 .82rem var(--body);background:none;border:1px solid var(--line);border-radius:8px;padding:8px 12px;color:var(--ink);cursor:pointer;align-self:center}
+.more:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+body:not(.view-archive) #archive{display:none} body.view-archive .current{display:none}
+#statusChips .chip[data-v="hidden"]{display:none} .can-hide #statusChips .chip[data-v="hidden"]{display:inline-block}
+
 @media (max-width:520px){h1{font-size:1.5rem}.role{grid-template-columns:1fr auto}.role .fit{grid-column:1/-1}}
 @media (prefers-reduced-motion:no-preference){.co{transition:opacity .15s}}
 </style>
@@ -96,30 +102,43 @@ details summary{cursor:pointer;font-weight:600}
   <header>
     <h1>__TITLE__</h1>
     <div class="sub" id="updated"></div>
+    <div class="views chips" role="group" aria-label="View">
+      <button class="chip" data-f="view" data-v="current" aria-pressed="true">Current roles</button>
+      <button class="chip" data-f="view" data-v="archive" aria-pressed="false">Archive</button>
+    </div>
   </header>
-  <div class="stats" id="stats"></div>
+  <div class="stats current" id="stats"></div>
   <div class="bar">
     <input id="q" type="search" placeholder="Filter by company or role" aria-label="Filter by company or role">
-    <div class="chips" role="group" aria-label="Fit">
+    <div class="chips current" role="group" aria-label="Fit">
       <button class="chip" data-f="fit" data-v="all" aria-pressed="true">All</button>
       <button class="chip" data-f="fit" data-v="keep" aria-pressed="false">Keep</button>
       <button class="chip" data-f="fit" data-v="stretch" aria-pressed="false">Stretch</button>
       <button class="chip" data-f="fit" data-v="new" aria-pressed="false">New</button>
     </div>
-    <div class="chips" role="group" aria-label="Where">
+    <div class="chips current" role="group" aria-label="Where">
       <button class="chip" data-f="pool" data-v="all" aria-pressed="true">Anywhere</button>
       <button class="chip" data-f="pool" data-v="local" aria-pressed="false" id="localChip">Local</button>
       <button class="chip" data-f="pool" data-v="remote" aria-pressed="false">Remote</button>
+    </div>
+    <div class="chips" id="statusChips" role="group" aria-label="Archive status" hidden>
+      <button class="chip" data-f="status" data-v="all" aria-pressed="true">All</button>
+      <button class="chip" data-f="status" data-v="hidden" aria-pressed="false">Hidden by you</button>
+      <button class="chip" data-f="status" data-v="cut" aria-pressed="false">Cut</button>
+      <button class="chip" data-f="status" data-v="closed" aria-pressed="false">Closed</button>
+      <button class="chip" data-f="status" data-v="older" aria-pressed="false">Older</button>
     </div>
     <select id="fam" aria-label="Role type"></select>
     <select id="ind" aria-label="Industry"></select>
     <span class="sub" id="status" role="status"></span>
   </div>
-  <section id="watch"><h2>Watchlist <small id="watchCount"></small></h2><div id="watchList"></div></section>
-  <section id="market"><h2>Market search <small id="marketCount"></small></h2><div id="marketList"></div></section>
-  <section id="pages"><h2>Careers pages</h2><div class="list" id="pageList"></div></section>
-  <section id="attn"><h2>Needs attention</h2><div class="list" id="attnList"></div></section>
-  <section id="hidden"><h2>Hidden by you <small id="hiddenCount"></small></h2><div class="list" id="hiddenList"></div></section>
+  <section id="watch" class="current"><h2>Watchlist <small id="watchCount"></small></h2><div id="watchList"></div></section>
+  <section id="market" class="current"><h2>Market search <small id="marketCount"></small></h2><div id="marketList"></div></section>
+  <section id="pages" class="current"><h2>Careers pages</h2><div class="list" id="pageList"></div></section>
+  <section id="attn" class="current"><h2>Needs attention</h2><div class="list" id="attnList"></div></section>
+  <section id="archive"><h2>Archive <small id="archiveCount"></small></h2>
+    <p class="sub">Every role the radar has shown or judged: what you hid, what Snoopy cut, postings that closed, and market roles older than the report window.</p>
+    <div id="archiveList"></div></section>
 </div>
 
 <script type="application/json" id="data">__DATA__</script>
@@ -127,7 +146,9 @@ details summary{cursor:pointer;font-weight:600}
 (function(){
   const D = JSON.parse(document.getElementById("data").textContent);
   const LOCAL = D.local_label || "Local";
-  const state = {fit:"all", pool:"all", fam:"all", ind:"all", q:""};
+  const state = {fit:"all", pool:"all", fam:"all", ind:"all", q:"", view:"current", status:"all"};
+  const ARCH = D.archive || [];
+  let archLimit = 150;
   let hidden = new Map();            // db "hidden" collection: doc id -> {kind, label}
   let hiddenCol = null;
   const keyOf = s => String(s||"").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 120) || "x";
@@ -152,8 +173,8 @@ details summary{cursor:pointer;font-weight:600}
     const keys = Object.keys(counts).sort((a,b) => (a==="Other"||a==="Unknown") - (b==="Other"||b==="Unknown") || counts[b]-counts[a]);
     sel.innerHTML = `<option value="all">${esc(label)}</option>` + keys.map(k => `<option value="${esc(k)}">${esc(k)} (${counts[k]})</option>`).join("");
   };
-  opts(document.getElementById("fam"), "All role types", all.map(r => r.family || "Other"));
-  opts(document.getElementById("ind"), "All industries", all.flatMap(r => r.industries && r.industries.length ? r.industries : ["Unknown"]));
+  opts(document.getElementById("fam"), "All role types", all.concat(ARCH).map(r => r.family || "Other"));
+  opts(document.getElementById("ind"), "All industries", all.concat(ARCH).flatMap(r => r.industries && r.industries.length ? r.industries : ["Unknown"]));
   const n = f => all.filter(f).length;
   const withRoles = new Set(D.watchlist_roles.map(r => r.company)).size;
   document.getElementById("stats").innerHTML = [
@@ -187,14 +208,37 @@ details summary{cursor:pointer;font-weight:600}
       <button class="hide" data-hide="company" data-company="${esc(c)}" aria-label="Hide all roles at ${esc(c)}">Hide company</button></span></div>
       ${rs.map(roleHTML).join("")}</article>`).join("");
   }
-  function pass(r){
-    if (hidden.has(roleKey(r)) || hidden.has(coKey(r.company))) return false;
-    if (state.fit === "new" ? !r.new : (state.fit !== "all" && fitKey(r) !== state.fit)) return false;
+  const isHidden = r => hidden.has(roleKey(r)) || hidden.has(coKey(r.company));
+  function common(r){
     if (state.fam !== "all" && (r.family || "Other") !== state.fam) return false;
     if (state.ind !== "all" && !(r.industries && r.industries.length ? r.industries : ["Unknown"]).includes(state.ind)) return false;
-    if (state.pool !== "all" && r.pool !== state.pool) return false;
     const q = state.q.trim().toLowerCase();
-    return !q || (r.company + " " + r.title).toLowerCase().includes(q);
+    return !q || (r.company + " " + r.title + " " + (r.note||"") + " " + (r.why||"")).toLowerCase().includes(q);
+  }
+  const STL = {hidden:"Hidden by you", cut:"Cut", closed:"Closed", gone:"No longer listed", older:"Older"};
+  function archiveRows(){
+    const rows = ARCH.map(r => ({...r, st: isHidden(r) ? "hidden" : r.status}))
+      .concat(all.filter(isHidden).map(r => ({...r, st:"hidden"})));
+    [...hidden].filter(([k, v]) => v.kind === "company" && !rows.some(r => coKey(r.company) === k))
+      .forEach(([k, v]) => rows.push({id:k, company:v.label, title:"All roles at this company", st:"hidden", coOnly:true}));
+    return rows.filter(r => (state.status === "all" || r.st === state.status || (state.status === "closed" && r.st === "gone")) && (r.coOnly || common(r)));
+  }
+  function archHTML(r){
+    const key = r.coOnly ? r.id : (hidden.has(roleKey(r)) ? roleKey(r) : coKey(r.company));
+    const restore = r.st === "hidden" ? `<button class="hide" data-restore="${esc(key)}" aria-label="Show ${esc(r.title)} again">Restore</button>` : "<span></span>";
+    const labels = [r.family].concat(r.industries || []).filter(x => x && x !== "Unknown");
+    const when = r.st === "hidden" || !r.status_on ? "" : " · " + esc((STL[r.st]||r.st).toLowerCase()) + " " + esc(r.status_on);
+    return `<div class="role"><span class="st ${esc(r.st)}">${esc(STL[r.st]||r.st)}</span>
+      <div class="r-main"><div>${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>` : esc(r.title)}</div>
+      <div class="meta">${esc(r.company)}${r.first_seen ? " · seen " + esc(r.first_seen) : ""}${when}${r.fit && r.fit !== "cut" ? " · " + esc(r.fit) : ""}</div>
+      ${r.why || r.note ? `<div class="why">${esc(r.why || r.note)}</div>` : ""}
+      ${labels.length ? `<div class="labels">${labels.map(l => `<span>${esc(l)}</span>`).join("<span>·</span>")}</div>` : ""}</div>${restore}</div>`;
+  }
+  function pass(r){
+    if (isHidden(r)) return false;
+    if (state.fit === "new" ? !r.new : (state.fit !== "all" && fitKey(r) !== state.fit)) return false;
+    if (state.pool !== "all" && r.pool !== state.pool) return false;
+    return common(r);
   }
   function render(){
     const w = D.watchlist_roles.filter(pass), m = D.market_roles.filter(pass);
@@ -204,14 +248,20 @@ details summary{cursor:pointer;font-weight:600}
     document.getElementById("marketCount").textContent = m.length + " roles";
     document.querySelectorAll(".chip").forEach(b => b.setAttribute("aria-pressed", String(state[b.dataset.f] === b.dataset.v)));
     document.getElementById("fam").value = state.fam; document.getElementById("ind").value = state.ind;
-    const H = [...hidden].sort((a,b) => String(b[1].at||"").localeCompare(String(a[1].at||"")));
-    document.getElementById("hiddenCount").textContent = H.length ? H.length + "" : "";
-    document.getElementById("hiddenList").innerHTML = H.length ? H.map(([k, v]) => `<div class="hid-row"><span>${v.kind === "company" ? "Company: " : ""}${esc(v.label)}</span>
-      <button class="hide" data-restore="${esc(k)}" aria-label="Show ${esc(v.label)} again">Restore</button></div>`).join("")
-      : `<p class="empty">Nothing hidden. Use Hide on a role or a company to remove it from the lists.</p>`;
-    try { localStorage.setItem("radar-filters", JSON.stringify({fit:state.fit, pool:state.pool, fam:state.fam, ind:state.ind})); } catch(e){}
+    document.body.classList.toggle("view-archive", state.view === "archive");
+    document.getElementById("statusChips").hidden = state.view !== "archive";
+    if (state.view === "archive") {
+      const rows = archiveRows();
+      document.getElementById("archiveCount").textContent = rows.length + " roles";
+      document.getElementById("archiveList").innerHTML = rows.length
+        ? `<div class="co">${rows.slice(0, archLimit).map(archHTML).join("")}</div>` +
+          (rows.length > archLimit ? `<button class="more" id="more">Show ${Math.min(150, rows.length - archLimit)} more</button>` : "")
+        : `<p class="empty">Nothing here with these filters.</p>`;
+      const m = document.getElementById("more"); if (m) m.onclick = () => { archLimit += 150; render(); };
+    }
+    try { localStorage.setItem("radar-filters", JSON.stringify({fit:state.fit, pool:state.pool, fam:state.fam, ind:state.ind, view:state.view, status:state.status})); } catch(e){}
   }
-  document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () => { state[b.dataset.f] = b.dataset.v; render(); }));
+  document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () => { state[b.dataset.f] = b.dataset.v; archLimit = 150; render(); }));
   document.getElementById("q").addEventListener("input", e => { state.q = e.target.value; render(); });
   ["fam","ind"].forEach(id => document.getElementById(id).addEventListener("change", e => { state[id] = e.target.value; render(); }));
   if (![...document.getElementById("fam").options].some(o => o.value === state.fam)) state.fam = "all";
@@ -231,11 +281,11 @@ details summary{cursor:pointer;font-weight:600}
       } else if (b.dataset.hide === "company") {
         const c = b.dataset.company;
         await hiddenCol.doc(coKey(c)).set({kind:"company", label:c, company:c, at:new Date().toISOString()});
-        document.getElementById("status").textContent = "Hid " + c + ". Restore it under Hidden by you.";
+        document.getElementById("status").textContent = "Hid " + c + ". It's in Archive, under Hidden by you.";
       } else {
         const r = all.find(x => String(x.id) === b.dataset.id);
         if (r) await hiddenCol.doc(roleKey(r)).set({kind:"role", label:r.title + " · " + r.company, company:r.company, title:r.title, role_id:String(r.id), url:r.url||"", at:new Date().toISOString()});
-        document.getElementById("status").textContent = "Hid " + r.title + ". Restore it under Hidden by you.";
+        document.getElementById("status").textContent = "Hid " + r.title + ". It's in Archive, under Hidden by you.";
       }
     } catch(err) {
       b.disabled = false;

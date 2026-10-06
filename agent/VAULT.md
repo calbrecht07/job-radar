@@ -1,16 +1,18 @@
-# Vault sync (optional): keep the person's notes in step
+# Vault mirror (optional): a read-only copy of the radar in the person's notes
 
-Only when `agent/config.yaml` in the data repo has a `vault` section, and the run has access to the person's computer. All paths are relative to `vault.root`.
+Only when `agent/config.yaml` in the data repo has a `vault` section. GitHub is the single source of truth:
+settings, wishlist and profile are changed in the data repo (ask Claude), never in the vault. The vault is a
+copy that catches up whenever a run can reach it: a scheduled run bound to the person's computer with the vault
+folder attached, or any session on that computer (Claude Code, the desktop app).
 
-**Vault → repo** (first, so this run uses the latest settings)
-1. `vault.settings_note`: take the ```yaml block, validate it (`PYTHONPATH=<framework> python -c "import yaml; from radar.filters import Filters; Filters(yaml.safe_load(open('c.yaml')))"`), and if valid and changed, write it to `settings.yaml` in the data repo, **keeping any top-level section the note lacks** (take it from the current `settings.yaml`; a note written before a section existed must never delete it, e.g. `company_search`). Log which sections were kept from the repo so the person can add them to the note. If invalid: keep the old file and log "Settings note has an error: <message>".
-2. `vault.profile_files`: copy each listed note to its `profile/` target when changed.
-3. `vault.wishlist_note`: companies struck through or marked removed → prefix their `wishlist.csv` row name with `#`. Companies in the note but not in `wishlist.csv` → add a row.
+1. Run `PYTHONPATH=<framework> python -m radar.vault --data <data repo>`. It finds the vault from
+   `vault.roots` (first that exists), then writes, in one direction only:
+   - the settings note's yaml block = `settings.yaml`, under a read-only notice
+   - the report note = `report/report.md`, with a link to the live report page
+   - new Keep/Stretch roles into the alerts notes (local and remote), skipping roles already there
+   - new `scan/snoopy_log.md` entries into the log note
+   It prints "not reachable, skipped" and changes nothing when no root exists: that's normal, not an error.
+2. Then any per-person steps in `vault.extra_steps` (e.g. opportunity briefs), only if step 1 found the vault.
+3. Commit `scan/vault_sync.json` with the rest of the run.
 
-**Repo → vault**
-4. `report/report.md` → `vault.report_note` (overwrite).
-5. New Keep/Stretch verdicts since the last sync (track the timestamp in `scan/vault_sync.json`) → rows in `vault.alerts_note` (local roles) and `vault.remote_alerts_note` (remote roles), under a dated heading, in the table format those notes already use.
-6. New `scan/snoopy_log.md` entries → top of `vault.log_note`.
-7. Any extra per-person steps listed under `vault.extra_steps` (e.g. opportunity briefs).
-
-Edit notes in place (read-modify-write with python); never rebuild a note from truncated output.
+Never edit vault notes from truncated output, and never copy vault notes into the repo.

@@ -51,6 +51,7 @@ GraphQL (`gh workflow run`) may be blocked, REST works.
 - `radar/filters.py`: `settings.yaml` → `Verdict(keep, pool, reason, flags)` per posting. Local vs remote pools, residency flags for single-country remote, drops, experience flags.
 - `radar/scan.py`: builds targets (wishlist wins, index fills), fetches all feeds in threads, filters, writes `scan/`, `state/`, fetches job descriptions for the queue, calls `report.build`. Directory careers pages are checked in rotation (all once a day by default, `state/directory_pages.json`); a title match is opened (`located()`) to read the location from job data or page text, bounded by `directory_job_pages_per_run`, and unopened matches wait for the next run.
 - `radar/verify.py`: liveness. `check_via_feed` (board feed membership, cached), `check_url` (404/410, redirect to board home, closed-job notices anywhere on the page via `GONE_STRONG`, title must appear in visible text or the result is "unverified"; schema.org job data with a passed `validThrough` = closed, a future one vouches for a JavaScript page). Conservative: network trouble = live.
+- `radar/vault.py`: one-way mirror into the person's notes vault (settings note, report note, alerts, log); quiet skip when the vault isn't reachable. GitHub is the source of truth; nothing is read back from the vault.
 - `radar/report.py` + `radar/html.py`: `report/report.md`, `report.json`, self-contained `index.html` (the artifact page).
 - `radar/companies.py`, `radar/discover.py`: weekly pool; Common Crawl harvest and hidden-board finder for wishlist companies.
 
@@ -62,7 +63,7 @@ GraphQL (`gh workflow run`) may be blocked, REST works.
 - Full Common Crawl discovery has not yet run in the current layout (only `--skip-discovery` runs); the step is throttled hard by index.commoncrawl.org, hence the pacing in `discover.cc_get`.
 - `scan/matches.json` is a 60-day archive; junk from an old bug (VC careers pages linking portfolio jobs) was purged by hand once. If it reappears, the fix belongs in `sources/pages.job_links` / `boards.plausible`.
 - GitHub's own `schedule:` trigger proved unreliable (one scheduled scan in a day, 2h20m late). The data repo is triggered by cron-job.org instead (see `agent/ONBOARDING.md`); the workflow schedules stay as a backup. If scans stop, check the token's expiry first.
-- Snoopy's vault write needs the scheduled task bound to the person's Mac with the vault folder attached; otherwise it skips and logs it.
+- The vault mirror needs a run that can reach the vault (scheduled task bound to the Mac with the folder attached, or a session on the Mac); otherwise it skips and the next such run catches up.
 
 ## Data repo layout (for reference)
 

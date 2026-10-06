@@ -133,7 +133,7 @@ def build(data: Path, cfg: dict | None = None, skip_verify: bool = False) -> dic
     new_after = (now - timedelta(days=2)).isoformat(timespec="minutes")
     for row in wl_roles + mk + unverified_roles:
         row["family"] = categorize.family(row.get("title", ""), row.get("kind") or "")
-        tagged = (judged.get(row.get("id")) or {}).get("industry")       # Snoopy's tag, from the job description
+        tagged = (judged.get(row.get("id")) or {}).get("industry") or row.get("industry")   # Snoopy's tag (judged.json or extra_roles.json)
         row["industries"] = ([tagged] if isinstance(tagged, str) and tagged else list(tagged or [])) or inds.of(row.get("company", ""))
         rid = row.get("id")
         row["shown_since"] = shown_since[rid] if rid in shown_since else ("" if first_report else now.isoformat(timespec="minutes"))

@@ -292,13 +292,15 @@ def _discover(company: dict) -> dict:
 RENDER_METHODS = ("js_only", "no_jobs", "blocked", "none")
 
 
-def render_discover(company: dict, prof: dict, browser, wanted=None, locate=None, max_job_pages: int = 12) -> dict:
+def render_discover(company: dict, prof: dict, browser, wanted=None, locate=None, max_job_pages: int = 12,
+                    seconds: float = 120) -> dict:
     """Second pass with a real browser for companies plain requests couldn't read (RENDER_METHODS).
     In order of preference: a job board the page loads (-> feed), jobs in the page's own data calls, posting
     links in the rendered page. Titles that pass `wanted(title)` but carry no location get their job page
     rendered and `locate(html, url)` -> {locations, remote}. Returns the updated profile; method "rendered"
     keeps its jobs in profile["jobs"] for the scan."""
     from radar.browser import jobs_from_json
+    deadline = time.monotonic() + seconds
     name, site = company.get("name", ""), company.get("website", "")
     if site and not site.startswith("http"):
         site = "https://" + site
@@ -311,9 +313,15 @@ def render_discover(company: dict, prof: dict, browser, wanted=None, locate=None
         out["error"] = f"render: {pages[0]['error'] or pages[0]['status']}"
         return out
     if not prof.get("careers_url"):                         # find the careers page in the rendered homepage
-        cl = career_links(pages[0]["html"], pages[0]["final_url"])
+        cl = career_links(pages[0]["html"], pages[0]["final_url"]) if (pages[0]["status"] or 0) < 400 else []
         if cl:
             pages.append(browser.render(cl[0]))
+        else:                                               # blocked or link-less homepage: the usual paths
+            for path in FALLBACK_PATHS[:2]:
+                pg = browser.render(urljoin(site, path))
+                if pg["html"] and (pg["status"] or 0) < 400 and _CAREER_TXT.search(pg["html"][:400000]):
+                    pages.append(pg)
+                    break
     last = pages[-1]
 
     def found(pg):
@@ -352,7 +360,9 @@ def render_discover(company: dict, prof: dict, browser, wanted=None, locate=None
     # where are the roles that matter? open their pages (bounded)
     opened = 0
     for j in jobs:
-        if opened >= max_job_pages or j.get("locations") or not j.get("url") or (wanted and not wanted(j["title"])):
+        if opened >= max_job_pages or time.monotonic() > deadline:
+            break
+        if j.get("locations") or not j.get("url") or (wanted and not wanted(j["title"])):
             continue
         opened += 1
         pg = browser.render(j["url"])

@@ -204,6 +204,9 @@ def locate_html(html: str, url: str, flt: Filters) -> dict:
         m = next((rx.search(text) for rx in flt.allowed if rx.search(text)), None)
         return {"remote": True, "locations": [f"Remote - {m.group(0)}"] if m else ["Remote"], "description": text[:7000],
                 "_flags": ["remote read from the job page text: check it"]}
+    if len(text) < 400:              # a JavaScript page that shows nothing: keep the role, say where is unknown
+        return {"locations": ["Location unknown"], "_flags": ["location unknown (job page needs JavaScript): open the link"],
+                "_unknown_location": True}
     return {"description": text[:7000]}
 
 
@@ -483,7 +486,10 @@ def main(argv=None):
                 p = located(p, flt)
             seen[key] = [TODAY, "dirpage:" + d["key"]]
             stats["new_postings"] += 1
-            v = flt.evaluate(p, c)
+            if p.get("_unknown_location"):             # can't tell where: let the reviewer decide (title already matches)
+                v = Verdict(True, pool="local", flags=[])
+            else:
+                v = flt.evaluate(p, c)
             if not v.keep:
                 drop(v.reason)
                 continue

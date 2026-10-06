@@ -180,9 +180,13 @@ def test_located_reads_job_page():
     with mock.patch.object(scan.pages.requests, "get", lambda *a, **k: R(text="<p>Chief of Staff</p><p>Based in our London office</p>" * 5)):
         p = scan.located({"title": "Chief of Staff", "url": "https://acme.com/job/1"}, flt)
     assert p["locations"] == ["London"] and flt.evaluate(p, {"kind": "corporate"}).keep
-    with mock.patch.object(scan.pages.requests, "get", lambda *a, **k: R(text="<p>Chief of Staff</p><p>Based in Chicago</p>" * 5)):
+    with mock.patch.object(scan.pages.requests, "get", lambda *a, **k: R(text="<p>Chief of Staff</p><p>Based in Chicago</p>" + "".join(f"<p>Responsibility {i}: work with the team on plans</p>" for i in range(20)))):
         p = scan.located({"title": "Chief of Staff", "url": "https://acme.com/job/1"}, flt)
     assert not p.get("locations") and flt.evaluate(p, {"kind": "corporate"}).reason == "location"
+    # a JavaScript page that shows nothing: kept for the reviewer, location unknown
+    with mock.patch.object(scan.pages.requests, "get", lambda *a, **k: R(text="<div id=root></div>")):
+        p = scan.located({"title": "Chief of Staff", "url": "https://acme.com/job/1"}, flt)
+    assert p["_unknown_location"] and p["locations"] == ["Location unknown"]
 
 
 def test_company_time_budget():

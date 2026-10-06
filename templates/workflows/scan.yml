@@ -24,6 +24,8 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main          # latest, not the commit at trigger time: a queued run starts after the previous one pushed
       - uses: actions/checkout@v4
         with:
           repository: calbrecht07/job-radar

@@ -337,7 +337,10 @@ def main(argv=None):
                     and too_old(p.get("published"), ff_cutoff):
                 drop("first_fetch_older")
                 continue
-            if c["layer"] == "market" and mk_cutoff and too_old(p.get("published"), mk_cutoff):
+            # a company the radar just discovered: its London roles are news at any age (still listed = open);
+            # remote roles keep the market window (old "anywhere in Europe" listings are mostly evergreen)
+            discovered_first = first_fetch and (c.get("source") or "") in discovered_sources and v.pool == "local"
+            if c["layer"] == "market" and mk_cutoff and not discovered_first and too_old(p.get("published"), mk_cutoff):
                 drop("market_too_old")
                 continue
             new_cands.append(candidate(c, p, v, key, max_desc))

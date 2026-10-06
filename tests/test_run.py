@@ -110,10 +110,17 @@ def test_first_fetch_window_for_discovered_companies(tmp_path, monkeypatch):
                                         "Found Co,corporate,ashby,found,2026-10-05,directory\n"
                                         "Known Co,startup,ashby,known,2026-10-05,manual\n")
     month_ago = (datetime.now(timezone.utc) - timedelta(days=30)).date().isoformat()
+    year_ago = (datetime.now(timezone.utc) - timedelta(days=365)).date().isoformat()
     post = lambda slug: [{"id": "1", "title": "Chief of Staff", "locations": ["London"], "remote": False, "workplace": "",
-                          "url": f"https://jobs.ashbyhq.com/{slug}/1", "published": month_ago, "description": "x"}]
+                          "url": f"https://jobs.ashbyhq.com/{slug}/1", "published": month_ago, "description": "x"},
+                         {"id": "2", "title": "Chief of Staff", "locations": ["London"], "remote": False, "workplace": "",
+                          "url": f"https://jobs.ashbyhq.com/{slug}/2", "published": year_ago, "description": "x"},
+                         {"id": "3", "title": "Solutions Engineer", "locations": ["Remote - Europe"], "remote": True, "workplace": "remote",
+                          "url": f"https://jobs.ashbyhq.com/{slug}/3", "published": year_ago, "description": "x"}]
     with mock.patch.object(ats, "fetch", lambda a, s: post(s)):
         assert run.main(["--data", str(tmp_path)]) == 0
     pend = json.loads((tmp_path / "scan/pending.json").read_text())
-    assert [c["company"] for c in pend] == ["Found Co"]
-    assert json.loads((tmp_path / "scan/health.json").read_text())["dropped"]["first_fetch_older"] == 1
+    # discovered: both London roles (any age), not the year-old remote one; hand-listed: nothing older than 21 days
+    assert sorted((c["company"], c["url"][-1]) for c in pend) == [("Found Co", "1"), ("Found Co", "2")]
+    dropped = json.loads((tmp_path / "scan/health.json").read_text())["dropped"]
+    assert dropped["first_fetch_older"] == 3 and dropped["market_too_old"] == 1

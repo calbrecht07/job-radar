@@ -142,6 +142,23 @@ def run(data: Path, workers: int = 12) -> dict:
     # drop roles already judged cut (not shown anyway)
     roles = {k: v for k, v in roles.items() if (judged.get(k) or {}).get("fit") != "cut"}
 
+    # boards read successfully in the latest scan, by company: a posting that came from one of them and isn't in
+    # it any more has closed, whatever its page says (job pages often need JavaScript, so the page can't tell)
+    cstate = _load(data / "state/companies.json", {})
+    last_scan = max((v.get("last_ok") or "" for v in cstate.values()), default="")
+    fresh_boards: dict = {}
+    for k, v in cstate.items():
+        if v.get("last_ok") == last_scan and not v.get("fails"):
+            fresh_boards.setdefault((v.get("name") or "").lower(), set()).add(k.split(":", 1)[0])
+
+    def source_closed(r) -> str:
+        src = (r.get("ats") or "").lower()
+        if src == "portfolio":
+            return "no longer on the VC portfolio board"
+        if src in ats.ADAPTERS and src in fresh_boards.get((r.get("company") or "").lower(), set()):
+            return f"no longer in the company's {src} feed"
+        return ""
+
     closed, to_check, unverified = {}, [], {}
     for rid, r in roles.items():
         url = r.get("url") or ""
@@ -149,6 +166,14 @@ def run(data: Path, workers: int = 12) -> dict:
             continue                                    # seen in a live feed this scan: live
         if rid in prev and prev[rid].get("permanent"):
             closed[rid] = prev[rid]
+            continue
+        why = source_closed(r)
+        if why:
+            closed[rid] = {"company": r.get("company"), "title": r.get("title"), "url": url, "reason": why,
+                           "closed_on": datetime.now(timezone.utc).date().isoformat(), "permanent": True}
+            continue
+        if url.startswith("mailto:"):
+            unverified[rid] = "unverified: applications by email"
             continue
         to_check.append((rid, r))
 

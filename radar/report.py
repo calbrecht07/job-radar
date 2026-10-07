@@ -63,9 +63,12 @@ def build(data: Path, cfg: dict | None = None, skip_verify: bool = False) -> dic
     unverified_roles = []
 
     def park_if_unverified(row):
+        """Roles whose link the code couldn't confirm stay in their list, tagged so the person checks the link
+        first (also listed in unverified_roles for the markdown report)."""
         if row["id"] in unverified:
-            unverified_roles.append({**row, "why": unverified[row["id"]].replace("unverified: ", "")})
-            return True
+            why = unverified[row["id"]].replace("unverified: ", "")
+            row["check_link"] = why
+            unverified_roles.append({**row, "why": why})
         return False
 
     # ---- watchlist
@@ -261,7 +264,8 @@ def render_md(rep: dict, local_label: str) -> str:
     if rep["watchlist_roles"]:
         L += ["| Company | Role | Where | Fit | Since | Notes |", "|---|---|---|---|---|---|"]
         for r in rep["watchlist_roles"]:
-            notes = "; ".join(filter(None, [r.get("note")] + (r.get("flags") or [])))
+            notes = "; ".join(filter(None, [r.get("note")] + (r.get("flags") or []) +
+                                     (["⚠️ check the link before applying"] if r.get("check_link") else [])))
             vc = " (VC)" if r.get("kind") == "vc" else ""
             L.append(f"| {_md(r['company'])}{vc} | [{_md(r['title'])}]({r['url']}) | {_md(where(r, local_label))} | "
                      f"{FIT.get(r.get('fit'), r.get('fit'))} | {r.get('first_seen', '')} | {_md(notes)[:160]} |")
@@ -290,7 +294,8 @@ def render_md(rep: dict, local_label: str) -> str:
     if rep["market_roles"]:
         L += ["| Company | Role | Where | Fit | Found | Notes |", "|---|---|---|---|---|---|"]
         for r in rep["market_roles"]:
-            notes = "; ".join(filter(None, [r.get("note")] + (r.get("flags") or [])))
+            notes = "; ".join(filter(None, [r.get("note")] + (r.get("flags") or []) +
+                                     (["⚠️ check the link before applying"] if r.get("check_link") else [])))
             vc = " (VC)" if r.get("kind") == "vc" else ""
             L.append(f"| {_md(r['company'])}{vc} | [{_md(r['title'])}]({r['url']}) | {_md(where(r, local_label))} | "
                      f"{FIT.get(r.get('fit'), r.get('fit'))} | {r.get('found', '')[:10]} | {_md(notes)[:160]} |")

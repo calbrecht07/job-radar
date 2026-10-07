@@ -76,6 +76,7 @@ section{display:flex;flex-direction:column;gap:12px}
 details summary{cursor:pointer;font-weight:600}
 .bar select{font:600 .82rem var(--body);padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--ink);max-width:100%}
 .bar select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.warn-badge{background:var(--warn-bg)!important;color:var(--warn)!important}
 .badge{font:600 .68rem var(--body);padding:1px 7px;border-radius:999px;background:var(--accent-soft);color:var(--accent);margin-left:6px;vertical-align:2px;letter-spacing:.03em}
 .labels{display:flex;flex-wrap:wrap;gap:4px}
 .labels span{font:500 .72rem var(--mono);color:var(--muted)}
@@ -132,10 +133,9 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
     <select id="ind" aria-label="Industry"></select>
     <span class="sub" id="status" role="status"></span>
   </div>
-  <section id="watch" class="current"><h2>Watchlist <small id="watchCount"></small></h2><div id="watchList"></div></section>
-  <section id="market" class="current"><h2>Market search <small id="marketCount"></small></h2><div id="marketList"></div></section>
+  <section id="watch" class="current"><h2>Companies you watch <small id="watchCount"></small></h2><div id="watchList"></div></section>
+  <section id="market" class="current"><h2>New finds across the market <small id="marketCount"></small></h2><div id="marketList"></div></section>
   <section id="pages" class="current"><h2>Careers pages</h2><div class="list" id="pageList"></div></section>
-  <section id="attn" class="current"><h2>Radar status</h2><div class="list" id="attnList"></div></section>
   <section id="archive"><h2>Archive <small id="archiveCount"></small></h2>
     <p class="sub">Every role the radar has shown or judged: what you hid, what Snoopy cut, postings that closed, and market roles older than the report window.</p>
     <div id="archiveList"></div></section>
@@ -164,8 +164,9 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
     return (r.workplace && r.workplace !== "remote" ? LOCAL + " · " + r.workplace : l);
   };
   document.getElementById("localChip").textContent = LOCAL;
-  document.getElementById("updated").textContent =
-    "Updated " + (D.updated||"").replace("T"," ").slice(0,16) + " UTC · " + D.boards + " job boards · " + D.watchlist_size + " watchlist companies";
+  document.getElementById("updated").textContent = "Updated " + (D.updated||"").replace("T"," ").slice(0,16) + " UTC" +
+    (D.verified_at ? " · links checked " + D.verified_at.replace("T"," ").slice(11,16) : "") +
+    " · " + (D.boards||0).toLocaleString() + " job boards searched";
 
   const all = D.watchlist_roles.concat(D.market_roles);
   const opts = (sel, label, values, noun) => {
@@ -198,8 +199,8 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
     [n(r => r.fit === "stretch"), "Stretch"],
     [n(r => r.new), "New in 2 days"],
     [D.awaiting_review || 0, "Awaiting judgement"],
-    [withRoles + " / " + D.watchlist_size, "Watchlist companies hiring"],
-    [D.market_roles.length, "Market matches, " + D.market_days + " days"],
+    [withRoles + " / " + D.watchlist_size, "Watched companies hiring"],
+    [D.market_roles.length, "New finds, last " + D.market_days + " days"],
   ].map(([b,s]) => `<div class="stat"><b>${esc(b)}</b><span>${esc(s)}</span></div>`).join("");
 
   function roleHTML(r){
@@ -208,7 +209,7 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
     const since = r.first_seen || (r.found||"").slice(0,10);
     const labels = [r.family].concat(r.industries || []).filter(x => x && x !== "Unknown");
     return `<div class="role"><span class="fit ${k}">${FITL[k]}</span>
-      <div class="r-main"><div><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>${r.new ? '<span class="badge">New</span>' : ""}</div>
+      <div class="r-main"><div><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>${r.new ? '<span class="badge">New</span>' : ""}${r.check_link ? `<span class="badge warn-badge" title="${esc("The radar couldn't confirm this posting is still open (" + r.check_link + "). Open the link before applying.")}">Check link</span>` : ""}</div>
       <div class="meta">${esc(where(r))}${since ? " · since " + esc(since) : ""}</div>
       ${labels.length ? `<div class="labels">${labels.map(l => `<span>${esc(l)}</span>`).join("<span>·</span>")}</div>` : ""}
       ${r.note ? `<div class="note">${esc(r.note)}</div>` : ""}
@@ -260,8 +261,9 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
     const w = D.watchlist_roles.filter(pass), m = D.market_roles.filter(pass);
     document.getElementById("watchList").innerHTML = groupHTML(w);
     document.getElementById("marketList").innerHTML = groupHTML(m);
-    document.getElementById("watchCount").textContent = w.length + " roles";
-    document.getElementById("marketCount").textContent = m.length + " roles";
+    const roles = n => n + (n === 1 ? " role" : " roles");
+    document.getElementById("watchCount").textContent = roles(w.length);
+    document.getElementById("marketCount").textContent = roles(m.length) + " · first seen in the last " + (D.market_days || 7) + " days";
     document.querySelectorAll(".chip").forEach(b => b.setAttribute("aria-pressed", String(state[b.dataset.f] === b.dataset.v)));
     fillOptions();
     document.body.classList.toggle("view-archive", state.view === "archive");
@@ -331,15 +333,6 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
   html += Object.entries(groups).map(([s, ps]) => `<details><summary>${esc(label[s]||s)} (${ps.length})</summary><p>${ps.map(link).join(", ")}</p></details>`).join("");
   document.getElementById("pageList").innerHTML = html || `<p class="empty">No careers pages to watch.</p>`;
 
-  const A = [];
-  // only what needs the person goes first; radar housekeeping folds into one line each
-  (D.unverified_roles||[]).forEach(r => A.push(`<p class="warn">Could not verify the link (page needs JavaScript), check before applying: <b>${esc(r.company)}</b> · <a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a> · ${FITL[fitKey(r)]}${r.note ? " · " + esc(r.note) : ""}</p>`));
-  // board problems are the radar's own housekeeping (weekly repair); the page only says how healthy it is
-  const nFail = (D.failing||[]).length, nBoards = D.boards || 0;
-  if (nBoards) A.push(`<p class="sub">${(nBoards - nFail).toLocaleString()} of ${nBoards.toLocaleString()} job boards answering${nFail ? "; the weekly repair handles the rest" : ""}.</p>`);
-  if (D.verified_at) A.push(`<p class="sub">Every listed link was confirmed live at ${esc((D.verified_at||"").replace("T"," ").slice(0,16))} UTC; ${D.closed_count||0} closed postings removed.</p>`);
-  if (D.hidden_cut) A.push(`<p class="sub">${D.hidden_cut} reviewed roles were cut and are hidden.</p>`);
-  document.getElementById("attnList").innerHTML = A.join("") || `<p class="empty">All job boards are answering.</p>`;
   render();
 })();
 </script>

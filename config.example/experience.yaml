@@ -1,0 +1,81 @@
+# Experience bank: everything you've done, written once, in STAR form.
+# The radar's agent judges fit from it, and `python -m radar.cv` builds a CV tailored to a role from it.
+# Only facts. Nothing here is invented by the agent; it asks you instead.
+#
+# STAR, per achievement:
+#   situation  the context: the company, team or problem (one line)
+#   task       what you were responsible for
+#   action     what you did (verbs, decisions, how)
+#   result     what changed, with a number wherever possible (time, money, %, users, deals)
+#
+# This example is a fictional person. Replace it with your own (the agent's interview in agent/EXPERIENCE.md
+# fills it in with you).
+
+person:
+  name: Alex Morgan
+  headline: Operations and product generalist
+  location: London, UK
+  email: alex.morgan@example.com
+  phone: "+44 7700 900000"
+  links:
+    - https://www.linkedin.com/in/alex-morgan-example
+
+summaries:                               # short profiles; the CV builder picks the one closest to the role
+  - id: ops
+    text: Operator who turns messy processes into systems, with five years across logistics and fintech.
+    tags: [operations, strategy, expansion, logistics]
+  - id: product
+    text: Product-minded generalist who ships tools customers adopt, from discovery to rollout.
+    tags: [product, user research, analytics]
+
+roles:
+  - company: Northwind Logistics
+    title: Operations Lead
+    location: London
+    start: 2023-03
+    end: present                         # YYYY-MM or "present"
+    context: Series B freight marketplace, 120 people
+    achievements:
+      - id: nw-dispatch
+        situation: Same-day dispatch ran on spreadsheets and missed 1 in 8 delivery windows.
+        task: Own dispatch reliability for the London hub.
+        action: Mapped the process, built a routing rules engine with the data team, and trained 14 dispatchers on it.
+        result: Missed windows fell from 12% to 3% in two quarters; overtime cost down £180k a year.
+        skills: [process design, SQL, stakeholder management]
+        tags: [operations, logistics]
+      - id: nw-launch
+        situation: The company was entering Manchester with no local team.
+        task: Lead the launch end to end.
+        action: Hired 9 people, set up carrier contracts, and ran a four-week pilot with three anchor customers.
+        result: Launched 2 weeks early; Manchester reached break-even in month 5.
+        skills: [market expansion, hiring, negotiation]
+        tags: [strategy, expansion, operations]
+
+  - company: Brightpay
+    title: Product Analyst
+    location: London
+    start: 2020-09
+    end: 2023-02
+    context: Payments startup serving small businesses
+    achievements:
+      - id: bp-onboarding
+        situation: Half of new merchants abandoned onboarding before their first payment.
+        task: Find out why and fix the biggest drop-off.
+        action: Analysed funnel data, ran 20 merchant interviews, and specified a shorter KYC flow with engineering.
+        result: Onboarding completion rose from 51% to 74%; first-payment time halved.
+        skills: [product analytics, user research, SQL]
+        tags: [product, fintech]
+
+education:
+  - school: University of Leeds
+    degree: BSc Economics
+    start: 2016
+    end: 2019
+
+skills:
+  Tools: [SQL, Python, Looker, Notion]
+  Methods: [process design, user research, A/B testing]
+
+languages:
+  - English (native)
+  - Spanish (professional)

@@ -4,6 +4,21 @@ A job-search radar you hand to your AI assistant. The code finds the companies a
 
 **Give this to your assistant:** "Set up job-radar for me. Read `agent/ONBOARDING.md` in github.com/calbrecht07/job-radar and follow it."
 
+## Getting started
+
+1. **Create your private data repo** and let your assistant follow `agent/ONBOARDING.md`: it asks what you want
+   (roles, city, industries, limits) and writes your settings.
+2. **Build your experience bank, once** (`agent/EXPERIENCE.md`). Your assistant interviews you role by role and
+   writes every achievement in STAR form: **S**ituation, **T**ask, **A**ction, **R**esult, with the result
+   measured where you can. Have a CV? Share it and the assistant drafts the bank from it, then only asks about
+   the gaps (usually the numbers). Nothing is invented: what isn't in the bank never appears anywhere.
+   The bank is `profile/experience.yaml`; `config.example/experience.yaml` is a fictional example.
+3. **Let it run.** Snoopy judges every role against your experience bank; the report shows what fits.
+4. **Tailored CV for a role you like:** ask your assistant, or run
+   `python -m radar.cv --data <your data repo> --role <role id or link>`. It picks the achievements that match
+   that job description, uses the closest summary, and writes a one-page CV to `cvs/` (HTML, and PDF with the
+   headless browser installed). Your assistant can refine the choice and shorten bullets, never add facts.
+
 ## How it works
 
 ```
@@ -52,6 +67,9 @@ Ashby, Greenhouse, Lever, Workable, Breezy, Recruitee, Personio, SmartRecruiters
 | `agent/SNOOPY.md` | the agent's instructions |
 | `agent/ONBOARDING.md` | how an assistant sets a new person up |
 | `agent/RESEARCH.md` | finding companies and directories on request |
+| `agent/EXPERIENCE.md` | building the experience bank with you; tailored CVs |
+| `radar/cv.py` | tailored CVs from the experience bank |
+| `radar/network.py` | your LinkedIn connections on every role |
 | `agent/VAULT.md` | optional: writing results into a notes app |
 | `agent/templates/` | config, profile, rules and scheduled-task prompt templates |
 | `config.example/` | example `settings.yaml`, `wishlist.csv`, `index.csv` |
@@ -67,7 +85,9 @@ Ashby, Greenhouse, Lever, Workable, Breezy, Recruitee, Personio, SmartRecruiters
 | `inbox/add.csv` | you | `ats,slug,Company` lines to add on the next company search |
 | `inbox/research.csv`, `inbox/sources.csv` | research agent | companies and directory pages found on request; processed into `inbox/done/` |
 | `pool/directory.csv`, `pool/directory.json` | company search | your copy of the city directory; run summary and companies with matching roles |
-| `profile/brief.md`, `profile/rules.md` | you | who you are; how to judge |
+| `profile/experience.yaml` | you, with your assistant | your experience bank (STAR), the source for judging and CVs |
+| `profile/brief.md`, `profile/rules.md` | you | who you are (generated from the bank); how to judge |
+| `cvs/` | `radar.cv` | tailored CVs, on request |
 | `agent/config.yaml` | you | where things are (repos, artifact, schedule, optional vault) |
 | `pool/` | company search | `companies.json` (the unified pool), `portfolio.json`, `portfolio_jobs.json`, `news.json`, `new_this_week.json` |
 | `scan/` | opportunity search, Snoopy | `review_queue.json`, `pending.json`, `watchlist.json`, `health.json`, `snoopy_log.md` |

@@ -11,7 +11,7 @@ You are helping someone set up their own job radar. Work through this with them,
 5. **Hard limits.** Years of experience you won't stretch to; visa or work-permit constraints; languages you don't speak; anything else that is an automatic no.
 6. **Wishlist.** Companies you already want watched (names are enough; the collector finds their job boards).
 7. **VC portfolio boards.** Which VCs' job boards should feed the company pool? (Give sensible defaults for their region if they don't know.)
-8. **Your background**, for judging fit: a CV or a paragraph per role with dates, plus education and languages. This becomes `profile/brief.md`. Only facts they give you.
+8. **Your background**: do you have a CV to share? Either way, the next step builds your experience bank with you (allow 30 to 45 minutes; it can be split over sessions).
 9. **Notes app.** Do you keep notes in Obsidian or similar and want the report and alerts written there? (Optional.)
 10. **Schedule.** What time(s) should Snoopy run, and in which time zone? Weekdays only?
 
@@ -24,7 +24,8 @@ Ask them to create a **private, empty** GitHub repo and give the agent app acces
 - Offer research (`agent/RESEARCH.md`): "Want me to find companies and directories in your industries now?" Do it with them present; it seeds `inbox/research.csv` and `inbox/sources.csv`.
 - `wishlist.csv`: their companies (`name,kind,ats,slug,careers_url,source,note`; leave `ats`/`slug` empty if unknown, set `source=seed`).
 - `index.csv`: header only.
-- `profile/brief.md`: who they are, in the shape of `agent/templates/brief.md`. `profile/rules.md`: their judging rules, from `agent/templates/rules.md`.
+- **Experience bank first**: follow `agent/EXPERIENCE.md` with the person (from their CV if they have one, else by interview) and write `profile/experience.yaml` in STAR form; check it with `python -m radar.cv --data . --check`.
+- `profile/brief.md`: who they are, generated from the experience bank, in the shape of `agent/templates/brief.md`. `profile/rules.md`: their judging rules, from `agent/templates/rules.md`.
 - `agent/config.yaml`: from `agent/templates/config.yaml` (name, repos, artifact URL once published, vault section if any, schedule).
 - `.github/workflows/`: copy `templates/workflows/scan.yml` and `templates/workflows/companies.yml`. In the repo settings: Actions → Workflow permissions → **Read and write**.
 - `judged.json` = `{}`, `extra_roles.json` = `[]`.
@@ -38,4 +39,4 @@ Ask them to create a **private, empty** GitHub repo and give the agent app acces
 4. Create the scheduled task from `agent/templates/task-prompt.md` at their chosen times. It must not require web fetches; if it needs their computer (vault), bind it to that computer.
 5. Add the daily digest if they want one place to read results (`agent/templates/digest-prompt.md`).
 
-Tell them: edit `settings.yaml` (or their settings note) to change what is found; edit `wishlist.csv` to change who is watched; the report page updates after every Snoopy run.
+Tell them: they can ask for a tailored CV for any role in the report (`agent/EXPERIENCE.md`, last section); edit `settings.yaml` (or their settings note) to change what is found; edit `wishlist.csv` to change who is watched; the report page updates after every Snoopy run.

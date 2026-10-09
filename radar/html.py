@@ -76,6 +76,11 @@ section{display:flex;flex-direction:column;gap:12px}
 details summary{cursor:pointer;font-weight:600}
 .bar select{font:600 .82rem var(--body);padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--ink);max-width:100%}
 .bar select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.net{font-size:.86rem;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+.net b{font-weight:600;color:var(--accent)}
+.net a{color:var(--ink);font-weight:400;border-bottom:1px solid var(--line)}
+.net a.mutual{color:var(--accent);border-color:var(--accent-soft)}
+.net span{color:var(--muted)}
 .warn-badge{background:var(--warn-bg)!important;color:var(--warn)!important}
 .badge{font:600 .68rem var(--body);padding:1px 7px;border-radius:999px;background:var(--accent-soft);color:var(--accent);margin-left:6px;vertical-align:2px;letter-spacing:.03em}
 .labels{display:flex;flex-wrap:wrap;gap:4px}
@@ -122,6 +127,10 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
       <button class="chip" data-f="pool" data-v="local" aria-pressed="false" id="localChip">Local</button>
       <button class="chip" data-f="pool" data-v="remote" aria-pressed="false">Remote</button>
     </div>
+    <div class="chips current" role="group" aria-label="Network" id="netChips" hidden>
+      <button class="chip" data-f="net" data-v="all" aria-pressed="true">Anyone</button>
+      <button class="chip" data-f="net" data-v="known" aria-pressed="false">Have a connection</button>
+    </div>
     <div class="chips" id="statusChips" role="group" aria-label="Archive status" hidden>
       <button class="chip" data-f="status" data-v="all" aria-pressed="true">All</button>
       <button class="chip" data-f="status" data-v="hidden" aria-pressed="false">Hidden by you</button>
@@ -146,7 +155,8 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
 (function(){
   const D = JSON.parse(document.getElementById("data").textContent);
   const LOCAL = D.local_label || "Local";
-  const state = {fit:"all", pool:"all", fam:"all", ind:"all", q:"", view:"current", status:"all"};
+  const state = {fit:"all", pool:"all", fam:"all", ind:"all", q:"", view:"current", status:"all", net:"all"};
+  const HAS_NET = !!D.network_as_of;
   const ARCH = D.archive || [];
   let archLimit = 150;
   let hidden = new Map();            // db "hidden" collection: doc id -> {kind, label}
@@ -166,7 +176,9 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
   document.getElementById("localChip").textContent = LOCAL;
   document.getElementById("updated").textContent = "Updated " + (D.updated||"").replace("T"," ").slice(0,16) + " UTC" +
     (D.verified_at ? " · links checked " + D.verified_at.replace("T"," ").slice(11,16) : "") +
-    " · " + (D.boards||0).toLocaleString() + " job boards searched";
+    " · " + (D.boards||0).toLocaleString() + " job boards searched" +
+    (HAS_NET ? " · LinkedIn network as of " + D.network_as_of : "");
+  document.getElementById("netChips").hidden = !HAS_NET;
 
   const all = D.watchlist_roles.concat(D.market_roles);
   const opts = (sel, label, values, noun) => {
@@ -198,6 +210,7 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
     [n(r => r.fit === "keep"), "Keep"],
     [n(r => r.fit === "stretch"), "Stretch"],
     [n(r => r.new), "New in 2 days"],
+    ...(HAS_NET ? [[n(r => (r.network || {}).count), "Roles where you know someone"]] : []),
     [D.awaiting_review || 0, "Awaiting judgement"],
     [withRoles + " / " + D.watchlist_size, "Watched companies hiring"],
     [D.market_roles.length, "New finds, last " + D.market_days + " days"],
@@ -208,12 +221,16 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
     const flags = (r.flags||[]).map(f => `<i>${esc(f)}</i>`).join("");
     const since = r.first_seen || (r.found||"").slice(0,10);
     const labels = [r.family].concat(r.industries || []).filter(x => x && x !== "Unknown");
+    const nw = r.network || {}, ppl = nw.people || [];
+    const net = !HAS_NET ? "" : `<div class="net">${ppl.length
+        ? `<b>You know ${nw.count}</b>${ppl.map(p => `<a href="${esc(p.url)}" target="_blank" rel="noopener" title="${esc(p.position)}">${esc(p.name)}</a>`).join("")}${nw.count > ppl.length ? `<span>+${nw.count - ppl.length} more</span>` : ""}`
+        : ""}${r.network_2nd ? `<a class="mutual" href="${esc(r.network_2nd)}" target="_blank" rel="noopener">People there you share connections with</a>` : ""}</div>`;
     return `<div class="role"><span class="fit ${k}">${FITL[k]}</span>
       <div class="r-main"><div><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>${r.new ? '<span class="badge">New</span>' : ""}${r.check_link ? `<span class="badge warn-badge" title="${esc("The radar couldn't confirm this posting is still open (" + r.check_link + "). Open the link before applying.")}">Check link</span>` : ""}</div>
       <div class="meta">${esc(where(r))}${since ? " · since " + esc(since) : ""}</div>
       ${labels.length ? `<div class="labels">${labels.map(l => `<span>${esc(l)}</span>`).join("<span>·</span>")}</div>` : ""}
       ${r.note ? `<div class="note">${esc(r.note)}</div>` : ""}
-      ${flags ? `<div class="flags">${flags}</div>` : ""}</div>
+      ${flags ? `<div class="flags">${flags}</div>` : ""}${net}</div>
       <button class="hide" data-hide="role" data-id="${esc(r.id)}" aria-label="Hide ${esc(r.title)} at ${esc(r.company)}">Hide</button></div>`;
   }
   function groupHTML(roles){
@@ -255,6 +272,7 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
     if (isHidden(r)) return false;
     if (state.fit === "new" ? !r.new : (state.fit !== "all" && fitKey(r) !== state.fit)) return false;
     if (state.pool !== "all" && r.pool !== state.pool) return false;
+    if (state.net === "known" && !((r.network || {}).count)) return false;
     return common(r);
   }
   function render(){
@@ -277,7 +295,7 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
         : `<p class="empty">Nothing here with these filters.</p>`;
       const m = document.getElementById("more"); if (m) m.onclick = () => { archLimit += 150; render(); };
     }
-    try { localStorage.setItem("radar-filters", JSON.stringify({fit:state.fit, pool:state.pool, fam:state.fam, ind:state.ind, view:state.view, status:state.status})); } catch(e){}
+    try { localStorage.setItem("radar-filters", JSON.stringify({fit:state.fit, pool:state.pool, fam:state.fam, ind:state.ind, view:state.view, status:state.status, net:state.net})); } catch(e){}
   }
   document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () => { state[b.dataset.f] = b.dataset.v; archLimit = 150; render(); }));
   document.getElementById("q").addEventListener("input", e => { state.q = e.target.value; render(); });

@@ -134,7 +134,13 @@ def build(data: Path, cfg: dict | None = None, skip_verify: bool = False) -> dic
             shown_since[r.get("id")] = r.get("shown_since") or (reviewed if reviewed and reviewed == latest_review else "")
     first_report = not prev
     new_after = (now - timedelta(days=2)).isoformat(timespec="minutes")
+    from radar.network import Network
+    net = Network(data)
     for row in wl_roles + mk + unverified_roles:
+        if net:
+            people = net.at(row.get("company", ""))
+            row["network"] = {"count": len(people), "people": [{k: p.get(k, "") for k in ("name", "url", "position")} for p in people[:6]]}
+            row["network_2nd"] = Network.second_degree_url(row.get("company", ""))
         row["family"] = categorize.family(row.get("title", ""), row.get("kind") or "")
         tagged = (judged.get(row.get("id")) or {}).get("industry") or row.get("industry")   # Snoopy's tag (judged.json or extra_roles.json)
         row["industries"] = ([tagged] if isinstance(tagged, str) and tagged else list(tagged or [])) or inds.of(row.get("company", ""))
@@ -150,7 +156,7 @@ def build(data: Path, cfg: dict | None = None, skip_verify: bool = False) -> dic
            "closed_count": len(closed), "awaiting_review": awaiting, "unverified_roles": unverified_roles,
            "verified_at": vres.get("updated"),
            "failing": (health.get("not_found") or []) + [f for f in health.get("failed") or [] if f.get("consecutive_fails", 0) >= 2],
-           "audit": audit, "archive": archive}
+           "audit": audit, "archive": archive, "network_as_of": net.meta.get("exported") if net else None}
     out = data / "report"
     out.mkdir(exist_ok=True)
     (out / "report.json").write_text(json.dumps(rep, indent=1, ensure_ascii=False) + "\n")
@@ -264,8 +270,10 @@ def render_md(rep: dict, local_label: str) -> str:
     if rep["watchlist_roles"]:
         L += ["| Company | Role | Where | Fit | Since | Notes |", "|---|---|---|---|---|---|"]
         for r in rep["watchlist_roles"]:
+            known = (r.get("network") or {}).get("people") or []
             notes = "; ".join(filter(None, [r.get("note")] + (r.get("flags") or []) +
-                                     (["⚠️ check the link before applying"] if r.get("check_link") else [])))
+                                     (["⚠️ check the link before applying"] if r.get("check_link") else []) +
+                                     ([f"🤝 you know {', '.join(p['name'] for p in known[:3])}"] if known else [])))
             vc = " (VC)" if r.get("kind") == "vc" else ""
             L.append(f"| {_md(r['company'])}{vc} | [{_md(r['title'])}]({r['url']}) | {_md(where(r, local_label))} | "
                      f"{FIT.get(r.get('fit'), r.get('fit'))} | {r.get('first_seen', '')} | {_md(notes)[:160]} |")
@@ -294,8 +302,10 @@ def render_md(rep: dict, local_label: str) -> str:
     if rep["market_roles"]:
         L += ["| Company | Role | Where | Fit | Found | Notes |", "|---|---|---|---|---|---|"]
         for r in rep["market_roles"]:
+            known = (r.get("network") or {}).get("people") or []
             notes = "; ".join(filter(None, [r.get("note")] + (r.get("flags") or []) +
-                                     (["⚠️ check the link before applying"] if r.get("check_link") else [])))
+                                     (["⚠️ check the link before applying"] if r.get("check_link") else []) +
+                                     ([f"🤝 you know {', '.join(p['name'] for p in known[:3])}"] if known else [])))
             vc = " (VC)" if r.get("kind") == "vc" else ""
             L.append(f"| {_md(r['company'])}{vc} | [{_md(r['title'])}]({r['url']}) | {_md(where(r, local_label))} | "
                      f"{FIT.get(r.get('fit'), r.get('fit'))} | {r.get('found', '')[:10]} | {_md(notes)[:160]} |")

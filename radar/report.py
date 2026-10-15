@@ -50,7 +50,18 @@ def build(data: Path, cfg: dict | None = None, skip_verify: bool = False) -> dic
     matches = _load(data / "scan/matches.json", [])
     judged = _load(data / "judged.json", {})
     from radar import verify
-    vres = verify.run(data) if not skip_verify else {}
+    # Liveness is checked by the scan (GitHub Actions can reach the job sites). A rebuild after it (Snoopy, whose
+    # sandbox can't reach most sites and would read network errors as "live") reuses that check instead of
+    # redoing it badly. RADAR_FORCE_VERIFY=1 re-checks anyway; skip_verify (offline tests) checks nothing.
+    import os
+    last = _load(data / "scan/closed.json", {})
+    fresh = (last.get("updated") or "") >= (health.get("run_at") or "~")
+    if skip_verify:
+        vres = {}
+    elif fresh and os.environ.get("RADAR_FORCE_VERIFY") != "1":
+        vres = last
+    else:
+        vres = verify.run(data)
     closed = vres.get("closed", {})
     unverified = vres.get("unverified", {})
 
@@ -122,6 +133,14 @@ def build(data: Path, cfg: dict | None = None, skip_verify: bool = False) -> dic
     mk.sort(key=lambda m: (m.get("kind") != "vc", rank.get(m.get("fit"), 3), m["company"].lower()))
 
     # labels for the page's filters, and what's new since the previous report
+    # broken links to live postings: point them at the company's own page for the role (verify.relinked)
+    for row in wl_roles + mk + unverified_roles:
+        fix = (vres.get("relinked") or {}).get(row.get("id"))
+        if fix:
+            row["url"] = fix["url"]
+            if fix.get("exact"):
+                row["flags"] = list(row.get("flags") or []) + ["link goes to the company's own careers site"]
+
     from radar import categorize
     inds = categorize.Industries(data, cfg)
     # first time each role appeared on the page (kept across rebuilds; the scan rebuilds 6x a day)

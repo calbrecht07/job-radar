@@ -506,6 +506,33 @@ ADAPTERS = {
 }
 
 
+_HOSTED_CACHE: dict = {}
+
+
+def hosted_board_live(ats_name: str, slug: str) -> bool | None:
+    """Is the platform's own job page for this board switched on? Some companies list jobs through the feed
+    but turn the hosted pages off and show them on their own site (Cursor on Ashby): then every
+    jobs.ashbyhq.com link says "Page not found". None = can't tell (network trouble, other platforms)."""
+    key = (ats_name, slug.lower())
+    if key in _HOSTED_CACHE:
+        return _HOSTED_CACHE[key]
+    live = None
+    try:
+        if ats_name == "ashby":
+            r = requests.get(f"https://jobs.ashbyhq.com/{slug}", headers=UA, timeout=TIMEOUT)
+            m = re.search(r"window\.__appData\s*=\s*(\{.*?\});", r.text, re.S)
+            if m:
+                live = '"organization":null' not in m.group(1).replace(" ", "")
+        elif ats_name in ("greenhouse", "lever"):
+            url = f"https://job-boards.greenhouse.io/{slug}" if ats_name == "greenhouse" else f"https://jobs.lever.co/{slug}"
+            r = requests.get(url, headers=UA, timeout=TIMEOUT, allow_redirects=True)
+            live = r.status_code < 400
+    except requests.RequestException:
+        live = None
+    _HOSTED_CACHE[key] = live
+    return live
+
+
 def fetch(ats: str, slug: str) -> list[dict]:
     fn = ADAPTERS.get(ats.lower())
     if not fn:

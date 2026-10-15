@@ -42,3 +42,35 @@ def test_feed_role_missing_from_fresh_feed_is_closed(tmp_path):
     out = verify.run(data)
     assert out["closed"]["m1"]["reason"] == "no longer in the company's workable feed"
     assert out["closed"]["m2"]["reason"] == "no longer on the VC portfolio board"
+
+
+def test_rebuild_reuses_the_scans_liveness_check(tmp_path, monkeypatch):
+    data = _data(tmp_path)
+    (data / "scan/closed.json").write_text(json.dumps({"updated": "2026-10-05T10:05", "closed": {"r1": {"reason": "HTTP 404"}},
+                                                       "unverified": {}, "relinked": {"r2": {"url": "https://acme.com/careers/role-2", "exact": True}}}))
+    called = []
+    monkeypatch.setattr(verify, "run", lambda d: called.append(1) or {})
+    rep = report.build(data)                       # health.run_at 10:00 < closed.json 10:05: reuse
+    assert not called and [r["id"] for r in rep["watchlist_roles"]] == ["r0", "r2"]
+    assert rep["watchlist_roles"][1]["url"] == "https://acme.com/careers/role-2"
+    monkeypatch.setenv("RADAR_FORCE_VERIFY", "1")
+    report.build(data)
+    assert called
+
+
+def test_link_dead_and_relink(monkeypatch):
+    from unittest import mock
+    from sources import boards as ats
+
+    class R:
+        def __init__(self, status=200, text="", url=""):
+            self.status_code, self.text, self.url = status, text, url
+    monkeypatch.setattr(ats, "hosted_board_live", lambda a, s: False)
+    assert "switched off" in verify.link_dead("https://jobs.ashbyhq.com/acme/123")
+    monkeypatch.setattr(ats, "hosted_board_live", lambda a, s: True)
+    with mock.patch.object(verify.requests, "get", lambda *a, **k: R(404, "", "https://x.test/1")):
+        assert verify.link_dead("https://x.test/1") == "HTTP 404"
+    page = '<a href="/careers/solutions-architect">Solutions Architect - Western Europe</a>'
+    with mock.patch.object(verify.requests, "get", lambda *a, **k: R(200, page, "https://acme.com/careers")):
+        assert verify.relink("Acme", "Solutions Architect - Western Europe", "https://acme.com/careers") == \
+            ("https://acme.com/careers/solutions-architect", True)

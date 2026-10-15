@@ -121,6 +121,53 @@ def check_url(url: str, title: str = "") -> tuple[bool, str]:
     return True, "ok"
 
 
+def link_dead(url: str) -> str:
+    """Why a job link is dead even though the posting is live in its feed, or "" (also "" on network trouble)."""
+    hit = next(((a, s) for a, s in ats.detect_boards(url) if a in ("ashby", "greenhouse", "lever")), None)
+    if hit and ats.hosted_board_live(*hit) is False:
+        return f"the company switched off its {hit[0]} job pages"
+    try:
+        r = requests.get(url, headers=UA, timeout=15, allow_redirects=True)
+    except requests.RequestException:
+        return ""
+    if r.status_code in (404, 410):
+        return f"HTTP {r.status_code}"
+    if r.url.rstrip("/") != url.rstrip("/") and BOARD_HOME.match(r.url.rstrip("/")) and not BOARD_HOME.match(url.rstrip("/")):
+        return "redirects to the job board's home page"
+    return ""
+
+
+def _careers_pages(data: Path) -> dict:
+    import csv
+    pages = {}
+    for f in ("wishlist.csv", "pool/directory.csv"):
+        p = data / f
+        if p.exists():
+            with p.open(newline="") as fh:
+                for r in csv.DictReader(fh):
+                    if r.get("careers_url") and r.get("name"):
+                        pages.setdefault(r["name"].lower(), r["careers_url"])
+    return pages
+
+
+def relink(company: str, title: str, careers_url: str) -> tuple[str, bool]:
+    """The role's own page on the company's careers site if a link there carries its title, else the careers
+    page itself. -> (url, exact)"""
+    import html as htmlmod
+    from sources import pages
+    try:
+        r = requests.get(careers_url, headers=UA, timeout=20)
+        want = re.sub(r"\W+", " ", (title or "").lower()).strip()
+        for href, inner in pages._A.findall(r.text):
+            text = re.sub(r"\W+", " ", htmlmod.unescape(pages._TAG.sub(" ", inner)).lower()).strip()
+            if want and want in text:
+                from urllib.parse import urljoin
+                return urljoin(r.url, htmlmod.unescape(href)), True
+    except requests.RequestException:
+        pass
+    return careers_url, False
+
+
 def run(data: Path, workers: int = 12) -> dict:
     live_keys = set(_load(data / "state/live.json", []))
     judged = _load(data / "judged.json", {})
@@ -159,11 +206,13 @@ def run(data: Path, workers: int = 12) -> dict:
             return f"no longer in the company's {src} feed"
         return ""
 
-    closed, to_check, unverified = {}, [], {}
+    closed, to_check, unverified, relinked = {}, [], {}, {}
+    feed_live = []
     for rid, r in roles.items():
         url = r.get("url") or ""
         if url in live_keys:
-            continue                                    # seen in a live feed this scan: live
+            feed_live.append((rid, r))                  # in a live feed: the job exists; its link is checked below
+            continue
         if rid in prev and prev[rid].get("permanent"):
             closed[rid] = prev[rid]
             continue
@@ -190,7 +239,23 @@ def run(data: Path, workers: int = 12) -> dict:
                                "permanent": reason.startswith("HTTP") or "says" in reason}
             elif reason.startswith("unverified"):
                 unverified[rid] = reason
+    # the posting is in its feed, but does the link open it? (Cursor: feed lists jobs whose hosted pages are off)
+    careers = _careers_pages(data)
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        dead = list(ex.map(lambda item: (item, link_dead(item[1].get("url") or "")), feed_live))
+    for (rid, r), why in dead:
+        if not why:
+            continue
+        page = careers.get((r.get("company") or "").lower())
+        if page:
+            new, exact = relink(r.get("company", ""), r.get("title", ""), page)
+            relinked[rid] = {"url": new, "exact": exact, "why": why}
+            if not exact:
+                unverified[rid] = "unverified: listed by the company; its own job link is broken, so this opens their careers page"
+        else:
+            unverified[rid] = f"unverified: the job link is broken ({why})"
     out = {"updated": datetime.now(timezone.utc).isoformat(timespec="minutes"), "checked": len(to_check),
+           "links_checked": len(feed_live), "relinked": relinked,
            "feed_live": len(roles) - len(to_check), "closed": closed, "unverified": unverified}
     (data / "scan").mkdir(exist_ok=True)
     (data / "scan/closed.json").write_text(json.dumps(out, indent=1, ensure_ascii=False) + "\n")

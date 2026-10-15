@@ -71,6 +71,29 @@ def check_via_feed(url: str) -> tuple[bool, str] | None:
     return False, "not in the company's job-board feed any more"
 
 
+# job aggregators, newsletters and job sites that copy postings: their pages outlive the job, so they never prove
+# a role is open. The original posting they link to does.
+AGGREGATORS = re.compile(
+    r"johngannonblog|welcometothejungle|otta\.com|builtin(london|nyc|)\.|linkedin\.com/jobs|indeed\.|glassdoor|"
+    r"wellfound|angel\.co|workinstartups|escapethecity|siftedjobs|venture5|goingvc|startup\.jobs|remoteok|"
+    r"weworkremotely|workatastartup|jobs\.ac\.uk|totaljobs|reed\.co\.uk|cwjobs|adzuna|simplyhired|jooble|talent\.com|"
+    r"climatebase|workonclimate|techjobsforgood|jobboardfinder|jobsinvc|vcjobs", re.I)
+_POSTING = re.compile(r"/(job|jobs|j|p|o|positions?|openings?|vacanc\w*|requisitions?)/[^/?#\s\"]+|gh_jid=|lever\.co/[^/]+/[0-9a-f-]{8,}|"
+                      r"ashbyhq\.com/[^/]+/[0-9a-f-]{8,}", re.I)
+
+
+def original_posting(page_html: str, page_url: str) -> str:
+    """The company's own posting that a third-party listing links to (its 'apply' link): a link to a job
+    platform with a posting path. "" if none."""
+    from urllib.parse import urljoin
+    import html as htmlmod
+    for href in re.findall(r'href=["\']([^"\']+)["\']', page_html or ""):
+        u = urljoin(page_url, htmlmod.unescape(href))
+        if u.startswith("http") and not AGGREGATORS.search(u) and _POSTING.search(u) and ats.detect_boards(u):
+            return u
+    return ""
+
+
 def _title_shown(title: str, text: str) -> bool:
     """Does the page text mention the role? Three longest title words are enough (Senior Founder's Associate ->
     founder, associate, senior)."""
@@ -93,6 +116,13 @@ def check_url(url: str, title: str = "") -> tuple[bool, str]:
         return False, f"HTTP {r.status_code}"
     if r.status_code >= 400:
         return True, f"unverified: HTTP {r.status_code}"
+    # a copy of a posting (aggregator, newsletter, job site): judge the original it links to, never the copy
+    orig = original_posting(r.text, r.url) if (AGGREGATORS.search(url) or AGGREGATORS.search(r.url)) else ""
+    if orig and orig.rstrip("/") != url.rstrip("/"):
+        live, why = check_url(orig, title)
+        return live, f"original posting: {why}"
+    if AGGREGATORS.search(url) or AGGREGATORS.search(r.url):
+        return True, "unverified: third-party listing, the company's own posting wasn't found"
     if r.url.rstrip("/") != url.rstrip("/") and BOARD_HOME.match(r.url.rstrip("/")) and not BOARD_HOME.match(url.rstrip("/")):
         return False, "redirected to board home"
     head = re.sub(r"<script.*?</script>|<style.*?</style>", " ", r.text[:60000], flags=re.S | re.I)

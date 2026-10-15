@@ -9,7 +9,9 @@ it lives only in the person's private data repo, never in the framework or the s
 Matching is by company name after removing legal and generic suffixes ("Octopus Energy Group Ltd" = "Octopus
 Energy"), exact only: a missed match is better than telling someone they know people at the wrong company.
 Second-degree connections aren't in the export and LinkedIn offers no public way to look them up, so each company
-gets a link to LinkedIn's own people search, filtered to the person's second-degree network.
+links to its LinkedIn People page (linkedin.com/company/<page>/people/), which lists who works there and the
+person's mutual connections. The company's LinkedIn page is read from its own website (state/linkedin_pages.json);
+a company whose page can't be found gets no link rather than a keyword search that matches anyone.
 """
 from __future__ import annotations
 
@@ -96,10 +98,116 @@ class Network:
         return self.by_company.get(norm(company), [])
 
     @staticmethod
-    def second_degree_url(company: str) -> str:
-        """LinkedIn people search for the company, second-degree network only (opens in the person's own login)."""
-        return ("https://www.linkedin.com/search/results/people/?keywords=" + quote(company)
-                + "&network=%5B%22S%22%5D&origin=FACETED_SEARCH")
+    def people_url(linkedin_page: str) -> str:
+        """The company's LinkedIn People page: its employees, with the person's mutual connections."""
+        return f"https://www.linkedin.com/company/{quote(linkedin_page)}/people/" if linkedin_page else ""
+
+
+# ------------------------------------------------------- company LinkedIn pages
+_LI = re.compile(r"linkedin\.com/company/([A-Za-z0-9%._-]+)")
+_LI_SKIP = {"linkedin", "company", "share", "showcase"}
+
+
+def linkedin_page(html_text: str) -> str:
+    """The company page a website links to (its own; the most frequent one if several)."""
+    found = [m.rstrip("/.").lower() for m in _LI.findall(html_text or "") if m.lower() not in _LI_SKIP]
+    if not found:
+        return ""
+    from collections import Counter
+    return Counter(found).most_common(1)[0][0]
+
+
+def _on_job_platform(url: str) -> bool:
+    from sources import boards
+    return bool(boards.detect_boards(url)) or bool(re.search(
+        r"ashbyhq\.com|greenhouse\.io|lever\.co|workable\.com|myworkdayjobs|smartrecruiters|teamtailor|personio|"
+        r"recruitee|bamboohr|breezy\.hr|getro|consider\.com|fountain\.com|pinpointhq|rippling|comeet", url or "", re.I))
+
+
+def resolve_pages(data: Path, companies: list[str], budget: int = 80, role_urls: dict | None = None) -> dict:
+    """{company: linkedin page} for these companies, from state/linkedin_pages.json, looking up (at most `budget`)
+    missing ones on their website and careers page. Network trouble leaves a company for the next run; a
+    website that loads but links no LinkedIn page is remembered as "" for 30 days."""
+    import requests
+    from datetime import timedelta
+    path = data / "state/linkedin_pages.json"
+    try:
+        cache = json.loads(path.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        cache = {}
+    today = datetime.now(timezone.utc).date()
+    sites = {}
+    for f, field in (("pool/directory.csv", "website"), ("pool/directory.csv", "careers_url"), ("wishlist.csv", "careers_url")):
+        p = data / f
+        if p.exists():
+            with p.open(newline="") as fh:
+                for r in csv.DictReader(fh):
+                    if r.get(field) and r.get("name") and not _on_job_platform(r[field]):
+                        sites.setdefault(norm(r["name"]), []).append(r[field])
+    for c, u in (role_urls or {}).items():                  # a role on the company's own domain names its site
+        if u and u.startswith("http") and not _on_job_platform(u):
+            from urllib.parse import urlparse
+            sites.setdefault(norm(c), []).append(f"https://{urlparse(u).netloc}")
+    # companies known only through a job board: the board names their website (Ashby's page data, Lever's header)
+    try:
+        cstate = json.loads((data / "state/companies.json").read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        cstate = {}
+    boards_by_name = {}
+    for key, v in cstate.items():
+        boards_by_name.setdefault(norm(v.get("name", "")), []).append(key)
+    from radar.careers import HEADERS
+    looked = 0
+
+    def board_website(company: str) -> str:
+        for key in boards_by_name.get(norm(company), []):
+            ats_name, slug = key.split(":", 1)
+            try:
+                if ats_name == "ashby":
+                    t = requests.get(f"https://jobs.ashbyhq.com/{slug}", headers=HEADERS, timeout=15).text
+                    m = re.search(r'"publicWebsite"\s*:\s*"([^"]+)"', t)
+                    if m:
+                        return m.group(1)
+                elif ats_name in ("lever", "lever-eu"):
+                    host = "jobs.eu.lever.co" if ats_name == "lever-eu" else "jobs.lever.co"
+                    t = requests.get(f"https://{host}/{slug}", headers=HEADERS, timeout=15).text
+                    m = re.search(r'class="main-header-logo"[^>]*href="(https?://[^"]+)"', t) or \
+                        re.search(r'href="(https?://[^"]+)"[^>]*class="main-header-logo"', t)
+                    if m:
+                        return m.group(1)
+            except requests.RequestException:
+                continue
+        return ""
+    for c in dict.fromkeys(companies):
+        k = norm(c)
+        hit = cache.get(k)
+        if hit and (hit.get("page") or hit.get("checked", "") >= (today - timedelta(days=30)).isoformat()):
+            continue
+        if looked >= budget:
+            continue
+        urls = list(dict.fromkeys(sites.get(k, [])))
+        looked += 1
+        if not urls:
+            site = board_website(c)
+            urls = [site] if site else []
+        if not urls:
+            cache[k] = {"company": c, "page": "", "checked": today.isoformat(), "why": "no website known"}
+            continue
+        page, reached = "", False
+        for u in urls[:2]:
+            try:
+                r = requests.get(u if u.startswith("http") else "https://" + u, headers=HEADERS, timeout=15)
+                reached = reached or r.status_code < 400
+                page = linkedin_page(r.text)
+            except requests.RequestException:
+                continue
+            if page:
+                break
+        if reached:
+            cache[k] = {"company": c, "page": page, "checked": today.isoformat()}
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(json.dumps(cache, indent=1, ensure_ascii=False, sort_keys=True) + "\n")
+    return {c: (cache.get(norm(c)) or {}).get("page", "") for c in companies}
 
 
 def main(argv=None):

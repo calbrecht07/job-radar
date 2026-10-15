@@ -153,13 +153,19 @@ def build(data: Path, cfg: dict | None = None, skip_verify: bool = False) -> dic
             shown_since[r.get("id")] = r.get("shown_since") or (reviewed if reviewed and reviewed == latest_review else "")
     first_report = not prev
     new_after = (now - timedelta(days=2)).isoformat(timespec="minutes")
-    from radar.network import Network
+    from radar.network import Network, resolve_pages
     net = Network(data)
+    li_pages = {}
+    if net:
+        rows_all = wl_roles + mk + unverified_roles
+        companies = [r.get("company", "") for r in rows_all]
+        role_urls = {r.get("company", ""): r.get("url", "") for r in rows_all}
+        li_pages = resolve_pages(data, companies, budget=0 if skip_verify else 80, role_urls=role_urls)
     for row in wl_roles + mk + unverified_roles:
         if net:
             people = net.at(row.get("company", ""))
             row["network"] = {"count": len(people), "people": [{k: p.get(k, "") for k in ("name", "url", "position")} for p in people[:6]]}
-            row["network_2nd"] = Network.second_degree_url(row.get("company", ""))
+            row["network_2nd"] = Network.people_url(li_pages.get(row.get("company", ""), ""))
         row["family"] = categorize.family(row.get("title", ""), row.get("kind") or "")
         tagged = (judged.get(row.get("id")) or {}).get("industry") or row.get("industry")   # Snoopy's tag (judged.json or extra_roles.json)
         row["industries"] = ([tagged] if isinstance(tagged, str) and tagged else list(tagged or [])) or inds.of(row.get("company", ""))

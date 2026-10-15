@@ -24,8 +24,25 @@ def test_import_zip_and_match(tmp_path):
     assert [p["name"] for p in net.at("Octopus Energy")] == ["Ada Lovelace"]       # suffixes ignored
     assert [p["name"] for p in net.at("Checkout.com")] == ["Cy Ng"]
     assert net.at("Bolt") == []                                                    # exact only: not Bolt Threads
-    assert "keywords=Checkout.com" in net.second_degree_url("Checkout.com") and "network=%5B%22S%22%5D" in net.second_degree_url("x")
+    assert net.people_url("factory-hq") == "https://www.linkedin.com/company/factory-hq/people/" and net.people_url("") == ""
 
 
 def test_no_network_is_falsy(tmp_path):
     assert not network.Network(tmp_path)
+
+
+def test_linkedin_page_from_website(tmp_path):
+    from unittest import mock
+    html = '<footer><a href="https://www.linkedin.com/company/factory-hq/">LinkedIn</a> <a href="https://linkedin.com/company/factory-hq">x</a>' \
+           '<a href="https://www.linkedin.com/company/some-partner">partner</a></footer>'
+    assert network.linkedin_page(html) == "factory-hq" and network.linkedin_page("<p>none</p>") == ""
+    (tmp_path / "pool").mkdir()
+    (tmp_path / "pool/directory.csv").write_text("key,name,website,careers_url\nfactory.ai,Factory,https://factory.ai,\nquiet.co,Quiet,https://quiet.co,\n")
+
+    class R:
+        def __init__(self, text): self.status_code, self.text = 200, text
+    with mock.patch("requests.get", lambda u, **k: R(html if "factory" in u else "<p>no links</p>")):
+        got = network.resolve_pages(tmp_path, ["Factory", "Quiet", "Unknown Co"])
+    assert got == {"Factory": "factory-hq", "Quiet": "", "Unknown Co": ""}
+    with mock.patch("requests.get", side_effect=AssertionError("cached: no lookups")):
+        assert network.resolve_pages(tmp_path, ["Factory", "Quiet"])["Factory"] == "factory-hq"

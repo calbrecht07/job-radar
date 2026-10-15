@@ -224,7 +224,7 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
     const nw = r.network || {}, ppl = nw.people || [];
     const net = !HAS_NET ? "" : `<div class="net">${ppl.length
         ? `<b>You know ${nw.count}</b>${ppl.map(p => `<a href="${esc(p.url)}" target="_blank" rel="noopener" title="${esc(p.position)}">${esc(p.name)}</a>`).join("")}${nw.count > ppl.length ? `<span>+${nw.count - ppl.length} more</span>` : ""}`
-        : ""}${r.network_2nd ? `<a class="mutual" href="${esc(r.network_2nd)}" target="_blank" rel="noopener">People there you share connections with</a>` : ""}</div>`;
+        : ""}${r.network_2nd ? `<a class="mutual" href="${esc(r.network_2nd)}" target="_blank" rel="noopener" title="${esc(r.company)}'s LinkedIn People page: who works there and your mutual connections">Who works there (LinkedIn)</a>` : ""}</div>`;
     return `<div class="role"><span class="fit ${k}">${FITL[k]}</span>
       <div class="r-main"><div><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>${r.new ? '<span class="badge">New</span>' : ""}${r.check_link ? `<span class="badge warn-badge" title="${esc("The radar couldn't confirm this posting is still open (" + r.check_link + "). Open the link before applying.")}">Check link</span>` : ""}</div>
       <div class="meta">${esc(where(r))}${since ? " · since " + esc(since) : ""}</div>

@@ -143,7 +143,7 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
     <span class="sub" id="status" role="status"></span>
   </div>
   <section id="watch" class="current"><h2>Companies you watch <small id="watchCount"></small></h2><div id="watchList"></div></section>
-  <section id="market" class="current"><h2>New finds across the market <small id="marketCount"></small></h2><div id="marketList"></div></section>
+  <section id="market" class="current"><h2>Open roles across the market <small id="marketCount"></small></h2><div id="marketList"></div></section>
   <section id="pages" class="current"><h2>Careers pages</h2><div class="list" id="pageList"></div></section>
   <section id="archive"><h2>Archive <small id="archiveCount"></small></h2>
     <p class="sub">Every role the radar has shown or judged: what you hid, what Snoopy cut, postings that closed, and market roles older than the report window.</p>
@@ -213,7 +213,7 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
     ...(HAS_NET ? [[n(r => (r.network || {}).count), "Roles where you know someone"]] : []),
     [D.awaiting_review || 0, "Awaiting judgement"],
     [withRoles + " / " + D.watchlist_size, "Watched companies hiring"],
-    [D.market_roles.length, "New finds, last " + D.market_days + " days"],
+    [D.market_roles.length, "Open roles across the market"],
   ].map(([b,s]) => `<div class="stat"><b>${esc(b)}</b><span>${esc(s)}</span></div>`).join("");
 
   function roleHTML(r){
@@ -281,7 +281,7 @@ body:not(.view-archive) #archive{display:none} body.view-archive .current{displa
     document.getElementById("marketList").innerHTML = groupHTML(m);
     const roles = n => n + (n === 1 ? " role" : " roles");
     document.getElementById("watchCount").textContent = roles(w.length);
-    document.getElementById("marketCount").textContent = roles(m.length) + " · first seen in the last " + (D.market_days || 7) + " days";
+    document.getElementById("marketCount").textContent = roles(m.length) + " · open now";
     document.querySelectorAll(".chip").forEach(b => b.setAttribute("aria-pressed", String(state[b.dataset.f] === b.dataset.v)));
     fillOptions();
     document.body.classList.toggle("view-archive", state.view === "archive");

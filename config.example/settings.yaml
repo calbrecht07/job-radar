@@ -139,7 +139,7 @@ freshness:
 output:
   pending_days: 10              # how long unreviewed candidates stay in the queue
   max_description_chars: 7000   # job description length passed to the reviewer
-  report_market_days: 7         # market section of the report shows the last N days
+  report_market_days: 7         # market roles not yet judged count as awaiting for N days; judged Keep/Stretch roles stay while open
 
 # --------------------------------------------------------- company search
 # Weekly: where new companies come from. Snoopy reviews pool/new_this_week.json on Mondays

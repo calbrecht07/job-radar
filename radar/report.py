@@ -117,9 +117,13 @@ def build(data: Path, cfg: dict | None = None, skip_verify: bool = False) -> dic
     # ---- market (last N days, not on the watchlist)
     mk = []
     for m in matches:
-        if m.get("layer") != "market" or m.get("found", "") < since:
+        if m.get("layer") != "market":
             continue
         fit, note = verdict(m["id"])
+        # judged roles stay while they're open, however old (New marks what's fresh); unjudged ones only
+        # count as awaiting judgement within the window
+        if m.get("found", "") < since and fit not in ("keep", "stretch"):
+            continue
         if fit == "cut" or m["id"] in closed:
             hidden += 1
             continue

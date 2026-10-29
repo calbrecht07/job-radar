@@ -8,14 +8,16 @@ from sources import boards as ats, pages
 from radar import scan as run
 
 EX = Path(__file__).parent.parent / "config.example"
+from datetime import datetime, timedelta, timezone
+RECENT = (datetime.now(timezone.utc) - timedelta(days=4)).date().isoformat()   # inside every freshness window
 
 FEEDS = {
     ("ashby", "acme"): [
         {"id": "1", "title": "Chief of Staff", "locations": ["London"], "remote": False, "workplace": "hybrid",
-         "url": "https://jobs.ashbyhq.com/acme/1", "published": "2026-10-01", "department": "", "salary": "",
+         "url": "https://jobs.ashbyhq.com/acme/1", "published": RECENT, "department": "", "salary": "",
          "description": "Great role"},
         {"id": "2", "title": "Senior Software Engineer", "locations": ["London"], "remote": False, "workplace": "",
-         "url": "https://jobs.ashbyhq.com/acme/2", "published": "2026-10-01", "department": "", "salary": "",
+         "url": "https://jobs.ashbyhq.com/acme/2", "published": RECENT, "department": "", "salary": "",
          "description": "code"}],
     ("greenhouse", "remoteco"): [
         {"id": "9", "title": "Solutions Engineer", "locations": ["Remote - EMEA"], "remote": None, "workplace": "",

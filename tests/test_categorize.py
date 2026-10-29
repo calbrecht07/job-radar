@@ -83,3 +83,20 @@ def test_archive_keeps_history(tmp_path, monkeypatch):
     second = {r["id"]: r for r in report.build(d, skip_verify=True)["archive"]}
     assert second["b2"]["status"] == "gone" and second["b2"]["title"] == "Product Manager" and second["b2"]["company"] == "Acme"
     assert "a1" not in second and second["c3"]["status"] == "cut"
+
+
+def test_open_judged_market_roles_stay_past_the_window(tmp_path, monkeypatch):
+    from radar import report
+    d = tmp_path
+    for sub in ("scan", "report", "pool"):
+        (d / sub).mkdir()
+    (d / "settings.yaml").write_text("locations: {local: {label: London}}\noutput: {report_market_days: 7}\n")
+    (d / "scan/watchlist.json").write_text(json.dumps({"companies": {}}))
+    (d / "scan/health.json").write_text("{}")
+    old = {"layer": "market", "company": "Fireworks", "title": "AI Deployment Strategist", "pool": "local", "locations": ["London"], "found": "2026-01-01T09:00"}
+    (d / "scan/matches.json").write_text(json.dumps([{**old, "id": "k1", "url": "https://x/k1"}, {**old, "id": "c1", "url": "https://x/c1"},
+                                                      {**old, "id": "u1", "url": "https://x/u1"}]))
+    (d / "judged.json").write_text(json.dumps({"k1": {"fit": "keep"}, "c1": {"fit": "cut"}}))
+    monkeypatch.setattr("radar.html.build", lambda data: None)
+    rep = report.build(d, skip_verify=True)
+    assert [r["id"] for r in rep["market_roles"]] == ["k1"] and rep["awaiting_review"] == 0

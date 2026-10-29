@@ -538,7 +538,12 @@ def main(argv=None):
     # archive of every candidate (no descriptions) for the report, 60 days
     arch_after = (NOW - timedelta(days=60)).isoformat()
     matches = [{k: v for k, v in c.items() if k != "description"} for c in new_cands]
-    matches += [m for m in load_json(data / "scan/matches.json", []) if m.get("found", "") >= arch_after]
+    # roles judged worth applying to stay until they close (the report's liveness check retires them);
+    # everything else is kept 60 days
+    judged_now = load_json(data / "judged.json", {})
+    keepers = {k for k, v in judged_now.items() if isinstance(v, dict) and v.get("fit") in ("keep", "stretch")}
+    matches += [m for m in load_json(data / "scan/matches.json", [])
+                if m.get("found", "") >= arch_after or m.get("id") in keepers]
     save_json(data / "scan/matches.json", matches)
     save_json(data / "scan/health.json", stats)
     save_json(data / "scan/watchlist.json", {"updated": stats["run_at"], "companies": wl_status})
